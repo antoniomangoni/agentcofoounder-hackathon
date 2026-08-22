@@ -14,3 +14,5 @@ output/*
 app-template/node_modules/
 app-template/dist/
 coverage/
+
+docs/personal/
