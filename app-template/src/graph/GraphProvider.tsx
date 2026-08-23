@@ -9,7 +9,7 @@ export function GraphProvider({ model, children }: { model: ProductModel; childr
   const storeRef = useRef<GraphStore | null>(null);
   if (!storeRef.current) {
     const loaded = readPersisted(model);
-    storeRef.current = createStore(model, loaded.snapshot, { persistError: loaded.persistError, persist: writePersisted });
+    storeRef.current = createStore(model, loaded.snapshot, { persistError: loaded.persistError, persist: (s) => writePersisted(s, model.title) });
   }
   return <GraphContext.Provider value={storeRef.current}>{children}</GraphContext.Provider>;
 }

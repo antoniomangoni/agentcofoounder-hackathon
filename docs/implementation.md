@@ -24,7 +24,7 @@ Constraints that stay fixed in v1:
 
 - One Pi call. Do not change the runner. The appended system prompt remains a cacheable GLM-5.2 prefix.
 - `CHALLENGE_THINKING` stays `off` unless a later measurement shows reasoning pays for itself.
-- No new npm packages. No backend unless the idea requires one.
+- No new npm packages. No backend or external API; see [`storage.md`](storage.md).
 - Node 22.19.x, Pi `@earendil-works/pi-coding-agent@0.84.1`.
 
 ## Architecture
@@ -43,7 +43,7 @@ flowchart LR
 ```
 
 - **Compile-time graph:** `src/product-model.json` is the plan the rest of the run executes.
-- **Runtime store:** one in-memory graph, one persistence key, one React context (`GraphProvider`). Composers do not own stores.
+- **Runtime store:** one in-memory graph, one persistence key per product, one React context (`GraphProvider`). Composers do not own stores.
 - **v1 runner:** unchanged. [`src/run-challenge.ts`](../src/run-challenge.ts) still prepares `output/app/` from `app-template/`, appends [`solution/system-prompt.md`](../solution/system-prompt.md) + [`contract-public/journeys.md`](../contract-public/journeys.md) + `output/app/AGENTS.md` (the copy of [`app-template/AGENTS.md`](../app-template/AGENTS.md) made by `prepareOutput`), and loads [`solution/skills/mvp-builder`](../solution/skills/mvp-builder/SKILL.md) plus [`solution/extensions/protected-paths.ts`](../solution/extensions/protected-paths.ts).
 
 ### Proposed file tree (later coding pass)
@@ -302,7 +302,7 @@ interface GraphStore {
 
 ### Persist (`persist.ts`)
 
-- Single key: `agent-cofounder-graph`.
+- Key: `agent-cofounder-graph:<slug(title)>`; empty title ⇒ `agent-cofounder-graph`. Per-title keys accumulate one orphaned key per idea in a browser profile; nothing prunes them. Accepted because MVP payloads are kilobytes against a ~5 MB origin quota.
 - Payload: `{ version: 1, snapshot: GraphSnapshot }`.
 - On load: missing key → empty snapshot. Malformed JSON, wrong version, or non-array `nodes`/`edges` → empty snapshot and a store-level flag `persistError` so the shell can show a recoverable message. Never throw through React render.
 - Save after every accepted `apply` / `undo`. Quota or `SecurityError`: set `persistError`, keep working in memory.
@@ -326,11 +326,11 @@ There is no `subscribe.ts` and no `SliceSpec` union. Per-slice change detection 
 
 | Budget | Limit |
 | --- | --- |
-| `graph/` excluding tests | ≤ 300 lines |
+| `graph/` excluding tests | ≤ 302 lines |
 | Each composer | ≤ 120 lines |
 | Skill instructions for file reads | Read `types.ts`, `product-model.json`, `App.tsx`, and composer **prop types** only. Do not open `store.ts` / `persist.ts` / `GraphProvider.tsx` unless a kernel test fails. |
 
-If the kernel grows past the budget, delete features; do not add a query language.
+If the kernel grows past the budget, delete features; do not add a query language. The 302 ceiling is the one exception: it was raised by exactly two lines for the per-product persist key ([`storage.md`](storage.md)), waiving this rule once. Do not raise it again.
 
 The budget is not decoration: seed size is the main risk to the efficiency claim this whole design rests on. Today’s seed is a 13-line `App.tsx`. Even at budget this is ~900 lines of code sitting in a workspace Pi will explore before it writes anything, and the read instruction above is a request to a model, not an enforced limit. [Later eval](#later-eval-and-follow-ups) measures whether the bet actually pays.
 

@@ -56,7 +56,19 @@ describe("persist", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("quota", "QuotaExceededError");
     });
-    expect(writePersisted({ nodes: [], edges: [] })).toBeTruthy();
+    expect(writePersisted({ nodes: [], edges: [] }, "")).toBeTruthy();
     vi.restoreAllMocks();
+  });
+
+  it("does not share data across models with the same entity id and different titles", () => {
+    const pantry = { ...model, title: "Pantry" };
+    const shelf = { ...model, title: "Shelf" };
+    const snapshot = {
+      nodes: [{ id: "n1", type: "item", attributes: { name: "oats" } }],
+      edges: [],
+    };
+    expect(writePersisted(snapshot, pantry.title)).toBeUndefined();
+    expect(readPersisted(shelf).snapshot.nodes).toEqual([]);
+    expect(readPersisted(pantry).snapshot.nodes).toEqual(snapshot.nodes);
   });
 });

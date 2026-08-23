@@ -1,6 +1,8 @@
 import type { GraphSnapshot, ProductModel } from "./types.js";
 
 export const STORAGE_KEY = "agent-cofounder-graph";
+const slug = (t: string): string => t.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+export const storageKey = (title: string): string => (slug(title) ? `${STORAGE_KEY}:${slug(title)}` : STORAGE_KEY);
 const BAD = "Saved data could not be read. Starting empty.";
 const empty = (): GraphSnapshot => ({ nodes: [], edges: [] });
 
@@ -18,7 +20,7 @@ export function sanitizeSnapshot(snapshot: GraphSnapshot, model: ProductModel): 
 
 export function readPersisted(model: ProductModel): { snapshot: GraphSnapshot; persistError?: string } {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey(model.title));
     if (!raw) return { snapshot: empty() };
     const parsed = JSON.parse(raw) as { version?: unknown; snapshot?: { nodes?: unknown; edges?: unknown } };
     if (parsed.version !== 1 || !Array.isArray(parsed.snapshot?.nodes) || !Array.isArray(parsed.snapshot.edges)) {
@@ -30,9 +32,9 @@ export function readPersisted(model: ProductModel): { snapshot: GraphSnapshot; p
   }
 }
 
-export function writePersisted(snapshot: GraphSnapshot): string | undefined {
+export function writePersisted(snapshot: GraphSnapshot, title: string): string | undefined {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, snapshot }));
+    localStorage.setItem(storageKey(title), JSON.stringify({ version: 1, snapshot }));
   } catch {
     return "Could not save. Changes stay on this page until you leave.";
   }
