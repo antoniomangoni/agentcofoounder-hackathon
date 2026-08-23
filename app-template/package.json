@@ -11,6 +11,7 @@
     "dev": "vite --host 0.0.0.0 --port 3000 --strictPort",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
+    "test:kernel": "vitest run --config vitest.kernel.config.ts",
     "preview": "vite preview --host 0.0.0.0 --port 3000 --strictPort"
   },
   "dependencies": {

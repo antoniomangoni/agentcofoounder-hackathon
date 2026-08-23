@@ -13,8 +13,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "app:test": "npm --prefix app-template test -- --passWithNoTests",
+    "app:test:kernel": "npm --prefix app-template run test:kernel",
     "app:build": "npm --prefix app-template run build",
-    "check": "npm run typecheck && npm run test && npm run app:test && npm run app:build"
+    "check": "npm run typecheck && npm run test && npm run app:test && npm run app:test:kernel && npm run app:build"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.84.1",

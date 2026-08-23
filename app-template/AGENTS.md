@@ -4,7 +4,10 @@
 - Store durable single-user browser data locally when persistence is required.
 - Prefer semantic HTML and accessible names so browser automation can use the interface without brittle selectors.
 - Add tests for the product's critical user journeys and run them before claiming success.
-- The seed intentionally contains no product tests. Add at least one completed, passing `src/**/*.test.ts` or `src/**/*.test.tsx` test; the runner rejects zero-test reports and any skipped or todo tests.
+- The seed ships domain-neutral kernel tests that are excluded from `npm test`. Every test the app actually runs is one you wrote. Add at least one completed, passing `src/**/*.test.ts` or `src/**/*.test.tsx` test; the runner rejects zero-test reports and any skipped or todo tests. `success` still requires `tests_run` entries that name user journeys, not store internals.
+- If the idea is record-keeping: write `src/product-model.json` first; bind composers from `journeys[]`; take labels from the model; do not rewrite `src/graph/`.
+- If the idea is not a collection of records (quiz, timer, calculator, multi-step wizard, canvas, etc.): do not invent entities to satisfy the kernel; leave or ignore `product-model.json`; replace `App.tsx` with a purpose-built UI; keep the kernel on disk; unused code is fine; record the choice in `assumptions`.
+- Product tests are Testing Library journeys. Kernel tests already exist and must stay excluded from `npm test`.
 - Use only the dependencies already installed from the committed lockfile. Do not add packages or run dependency-install commands.
 - `report.partial.json` contains only `status`, `app_url`, `start_command`, `summary`, `implemented_features`, `assumptions`, and `tests_run`.
 - A `success` report must contain at least one `tests_run` entry and every entry must be `passed`. If a journey failed or was not run, record it as `failed`, explain why in `journey`, and use `partial` (or `failed` when the app cannot run).
