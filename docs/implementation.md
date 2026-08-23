@@ -426,27 +426,27 @@ The runner appends three texts today ([`buildPiArguments`](../src/run-challenge.
 
 **[`app-template/AGENTS.md`](../app-template/AGENTS.md)** — replace the “no product tests” line; add:
 
-- Record-keeping ideas: write `src/product-model.json` first; do not rewrite `src/graph/`.
-- Bind composers from `journeys[]`; labels from the model.
+- Record-keeping ideas: write only `src/product-model.json`; do not rewrite `src/graph/`. `App.tsx` already binds composers from `journeys[]`.
+- Do not run `npm run dev`; the outer runner starts it.
 - Escape hatch when the idea is not record-keeping.
-- Product tests are Testing Library journeys; kernel tests already exist.
+- Product tests are Testing Library journeys in one file; persist remounts `<App />`.
 - Still do not write `result.json`.
 
-**[`solution/system-prompt.md`](../solution/system-prompt.md)** — same pipeline, shorter than today. Keep existing product constraints (port 3000, no new packages, persist, accessibility, `report.partial.json`).
+**[`solution/system-prompt.md`](../solution/system-prompt.md)** — same pipeline, shorter than today. Keep existing product constraints (port 3000, no new packages, persist, accessibility, `report.partial.json`). The app must be startable with `npm run dev`; Pi must not start it.
 
 **[`solution/skills/mvp-builder/SKILL.md`](../solution/skills/mvp-builder/SKILL.md)** — **add** the model/binder steps; do **not** replace the skill wholesale.
 
-The current skill’s steps 3–5 and 7 carry the guidance that maps onto the ~100-point Application Readiness axis: persistence and domain boundaries, accessible controls, validation, empty states, errors, responsive layout, duplicate actions, boundary values, malformed stored data, focused components, and testing every observable behavior. Readiness is scored separately from efficiency. Trading that content for graph instructions buys tokens with points and is a likely net loss. Condense those steps; keep them.
+The current skill’s steps 4–5 and 7 carry the guidance that maps onto the ~100-point Application Readiness axis: persistence and domain boundaries, accessible controls, validation, empty states, errors, responsive layout, duplicate actions, boundary values, malformed stored data, focused components, and testing every observable behavior. Readiness is scored separately from efficiency. Trading that content for graph instructions buys tokens with points and is a likely net loss. Condense those steps; keep them.
 
 The merged skill:
 
 1. Decide record-keeping vs escape hatch. Record the decision in `assumptions`.
-2. If record-keeping: extract ProductGraph; apply the links-vs-attributes rule; write `src/product-model.json` only.
-3. Bind composers in `App.tsx`. Do not invent a parallel architecture. Do not read kernel internals unless a kernel test fails.
+2. If record-keeping: extract ProductGraph; apply the links-vs-attributes rule; write `src/product-model.json` only. Include a domain-neutral JSON sketch (entity `item`, optional text, `count-nodes-where`, `links: []`).
+3. The shipped binder is finished. Do not edit `App.tsx` unless a named journey is missing. Read `types.ts`, `product-model.json`, and `App.tsx` only. One sentence on FilterBar labels (`{label} present`, `{label}: {choice}`).
 4. *(retained)* Accessible controls, validation, empty states, errors, responsive layout. Handle duplicate or repeated actions, boundary values, malformed stored data, and recoverable storage failures where relevant.
 5. *(retained)* Keep components focused, separate concerns, avoid duplication. Use only lockfile dependencies.
-6. Add one Testing Library test file per implied `Journey.kind` — and for any observable behavior the model does not capture. `persist` remounts (or equivalent) and asserts data survived. Use each `journey` string later in `tests_run`.
-7. `npm test` and `npm run build`. Repair.
+6. Add one Testing Library file covering every implied journey. `persist` remounts `<App />`; do not read `localStorage` keys. Use each `journey` string later in `tests_run`.
+7. `npm test` and `npm run build` only. Do not run `npm run dev`. Repair.
 8. Write `report.partial.json`. `success` only when every `tests_run` entry passed and at least one user journey exists.
 9. Do not write `result.json`.
 

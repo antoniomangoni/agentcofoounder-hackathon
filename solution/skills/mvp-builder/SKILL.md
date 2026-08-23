@@ -12,12 +12,46 @@ description: Turn a non-technical product idea into a small, tested browser appl
    - Replace `App.tsx` with a purpose-built UI.
    - Keep the kernel on disk; unused code is fine.
    - Add Testing Library tests for the journeys the idea actually implies.
-2. If record-keeping: extract ProductGraph (entities, attributes, journeys, derived values, assumptions). A second entity exists only if the idea treats that thing as its own record. Write `src/product-model.json` only. Do not rewrite `src/graph/`.
-3. Bind composers in `App.tsx` from `journeys[]`. Labels come from the model. Do not invent a parallel architecture. Read `src/graph/types.ts`, `src/product-model.json`, `src/App.tsx`, and composer prop types only. Do not open `store.ts` / `persist.ts` / `GraphProvider.tsx` unless a kernel test fails.
+2. If record-keeping: extract ProductGraph (entities, attributes, journeys, derived values, assumptions). A second entity exists only if the idea treats that thing as its own record. Write `src/product-model.json` only. Do not rewrite `src/graph/`. Do not edit `App.tsx` unless a journey the model names is missing from the shipped binder. Shape:
+
+```json
+{
+  "title": "Shelf",
+  "entities": [
+    {
+      "id": "item",
+      "singular": "item",
+      "plural": "items",
+      "attributes": [
+        { "id": "name", "label": "Name", "kind": "text", "required": true },
+        { "id": "note", "label": "Note", "kind": "text", "required": false }
+      ]
+    }
+  ],
+  "links": [],
+  "journeys": [
+    { "kind": "add", "journey": "Add an item and see it in the list" },
+    { "kind": "persist", "journey": "Items survive a refresh" }
+  ],
+  "derived": [
+    {
+      "id": "noted-count",
+      "label": "With notes",
+      "kind": "count-nodes-where",
+      "entity": "item",
+      "where": { "attribute": "note", "present": true }
+    }
+  ],
+  "assumptions": []
+}
+```
+
+FilterBar options (do not open composer source): optional text → `{label} present`; boolean → the attribute label; choice → `{label}: {choice}`. That is how “has a note” / “currently out” is expressed.
+3. Read only `src/graph/types.ts`, `src/product-model.json`, and `src/App.tsx`. Do not invent a parallel architecture. Do not open `store.ts`, `persist.ts`, `GraphProvider.tsx`, or composer modules unless a kernel test fails.
 4. Implement accessible controls, validation, empty states, errors, and responsive layout. Handle duplicate or repeated actions, boundary values, malformed stored data, and recoverable storage or runtime failures where relevant.
 5. Keep components focused, separate concerns, and avoid duplication so another developer or agent can extend the app without a rewrite. Use only the dependencies already installed from the committed lockfile. Do not add packages or run dependency-install commands.
-6. Add one Testing Library test file per implied `Journey.kind` — and for any observable behavior the model does not capture. `persist` remounts (or equivalent) and asserts data survived. Use each `journey` string later in `tests_run`.
-7. Run `npm test` and `npm run build`. Repair failures. Every committed test must run and pass; do not leave skipped or todo tests. Startup and assumptions reporting are runner obligations, not UI test journeys.
+6. Add one Testing Library file covering every implied journey and any observable behavior the model does not capture. For `persist`, remount `<App />` and assert the data survived. Do not read `localStorage` keys or open `persist.ts`. Use each `journey` string later in `tests_run`.
+7. Run `npm test` and `npm run build` only. Do not run `npm run dev`. Repair failures. Every committed test must run and pass; do not leave skipped or todo tests. Startup and assumptions reporting are runner obligations, not UI test journeys.
 8. Write `report.partial.json` with this exact shape:
 
 ```json
