@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectUsageFromJsonLines } from "../src/usage.js";
+import { collectUsageFromJsonLines, isFinalAssistantTruncated } from "../src/usage.js";
 
 describe("collectUsageFromJsonLines", () => {
   it("aggregates completed assistant messages without counting other events", () => {
@@ -77,6 +77,7 @@ describe("collectUsageFromJsonLines", () => {
       total_tokens: 377,
       reasoning_tokens: 7,
       cost_total: 0.025,
+      truncated: false,
       call_log: [
         {
           index: 1,
@@ -127,7 +128,89 @@ describe("collectUsageFromJsonLines", () => {
     expect(collectUsageFromJsonLines("{\"type\":\"agent_start\"}\n")).toMatchObject({
       model_calls: 0,
       total_tokens: 0,
+      truncated: false,
       call_log: [],
     });
+  });
+
+  it("records stop_reason and flags a truncated assistant call", () => {
+    const content = JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        model: "Qwen/Qwen3.8-27B-FP8",
+        stopReason: "length",
+        rawStopReason: "length",
+        usage: {
+          input: 200,
+          output: 16384,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 16584,
+          cost: { total: 0.059 },
+        },
+      },
+    });
+    const usage = collectUsageFromJsonLines(content);
+    expect(usage.truncated).toBe(true);
+    expect(usage.call_log[0]?.stop_reason).toBe("length");
+    expect(isFinalAssistantTruncated(usage)).toBe(true);
+  });
+
+  it("keeps truncated true after recovery without treating the final assistant as truncated", () => {
+    const content = [
+      JSON.stringify({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          model: "frontier-model",
+          stopReason: "length",
+          usage: {
+            input: 10,
+            output: 16384,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 16394,
+            cost: { total: 0.01 },
+          },
+        },
+      }),
+      JSON.stringify({
+        type: "message_end",
+        message: {
+          role: "toolResult",
+          toolName: "read",
+          stopReason: "stop",
+          usage: {
+            input: 5,
+            output: 1,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 6,
+            cost: { total: 0.001 },
+          },
+        },
+      }),
+      JSON.stringify({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          model: "frontier-model",
+          stopReason: "stop",
+          usage: {
+            input: 20,
+            output: 8,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 28,
+            cost: { total: 0.002 },
+          },
+        },
+      }),
+    ].join("\n");
+    const usage = collectUsageFromJsonLines(content);
+    expect(usage.truncated).toBe(true);
+    expect(usage.call_log.map((call) => call.stop_reason)).toEqual(["length", "stop", "stop"]);
+    expect(isFinalAssistantTruncated(usage)).toBe(false);
   });
 });

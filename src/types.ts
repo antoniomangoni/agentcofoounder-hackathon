@@ -24,6 +24,7 @@ export interface CallLogEntry {
   total_tokens: number;
   reasoning_tokens?: number;
   cost_total?: number;
+  stop_reason?: string;
 }
 
 export interface UsageSummary {
@@ -35,6 +36,7 @@ export interface UsageSummary {
   total_tokens: number;
   reasoning_tokens: number;
   cost_total: number;
+  truncated: boolean;
   call_log: CallLogEntry[];
 }
 

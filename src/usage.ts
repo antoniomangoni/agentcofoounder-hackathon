@@ -9,8 +9,18 @@ const ZERO_USAGE: UsageSummary = {
   total_tokens: 0,
   reasoning_tokens: 0,
   cost_total: 0,
+  truncated: false,
   call_log: [],
 };
+
+function isAssistantCall(call: CallLogEntry): boolean {
+  return !call.model.startsWith("tool:") && call.model !== "pi-compaction";
+}
+
+export function isFinalAssistantTruncated(usage: UsageSummary): boolean {
+  const assistants = usage.call_log.filter(isAssistantCall);
+  return assistants.at(-1)?.stop_reason === "length";
+}
 
 function finiteNonNegative(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -28,7 +38,7 @@ function isUsage(value: unknown): value is PiUsage {
   );
 }
 
-function usageCall(usage: PiUsage, model: string, index: number): CallLogEntry {
+function usageCall(usage: PiUsage, model: string, index: number, stopReason?: unknown): CallLogEntry {
   const call: CallLogEntry = {
     index,
     model,
@@ -41,6 +51,7 @@ function usageCall(usage: PiUsage, model: string, index: number): CallLogEntry {
 
   if (finiteNonNegative(usage.reasoning)) call.reasoning_tokens = usage.reasoning;
   if (finiteNonNegative(usage.cost?.total)) call.cost_total = usage.cost.total;
+  if (typeof stopReason === "string" && stopReason.length > 0) call.stop_reason = stopReason;
   return call;
 }
 
@@ -66,7 +77,7 @@ function callFromEvent(event: unknown, index: number): CallLogEntry | undefined 
     const provider = typeof completed.provider === "string" ? `${completed.provider}/` : "";
     const rawModel = completed.responseModel ?? completed.model;
     const model = typeof rawModel === "string" ? `${provider}${rawModel}` : `${provider}unknown`;
-    return usageCall(completed.usage, model, index);
+    return usageCall(completed.usage, model, index, completed.stopReason);
   }
 
   if (completed.role === "toolResult") {
@@ -75,6 +86,7 @@ function callFromEvent(event: unknown, index: number): CallLogEntry | undefined 
       completed.usage,
       typeof toolName === "string" ? `tool:${toolName}` : "tool:unknown",
       index,
+      completed.stopReason,
     );
   }
 
@@ -97,18 +109,20 @@ export function collectUsageFromJsonLines(content: string): UsageSummary {
 
   if (calls.length === 0) return { ...ZERO_USAGE, call_log: [] };
 
-  return calls.reduce<UsageSummary>(
-    (summary, call) => ({
-      model_calls: summary.model_calls + 1,
-      input_tokens: summary.input_tokens + call.input_tokens,
-      output_tokens: summary.output_tokens + call.output_tokens,
-      cache_read_tokens: summary.cache_read_tokens + call.cache_read_tokens,
-      cache_write_tokens: summary.cache_write_tokens + call.cache_write_tokens,
-      total_tokens: summary.total_tokens + call.total_tokens,
-      reasoning_tokens: summary.reasoning_tokens + (call.reasoning_tokens ?? 0),
-      cost_total: summary.cost_total + (call.cost_total ?? 0),
-      call_log: [...summary.call_log, call],
+  const summary = calls.reduce<UsageSummary>(
+    (totals, call) => ({
+      model_calls: totals.model_calls + 1,
+      input_tokens: totals.input_tokens + call.input_tokens,
+      output_tokens: totals.output_tokens + call.output_tokens,
+      cache_read_tokens: totals.cache_read_tokens + call.cache_read_tokens,
+      cache_write_tokens: totals.cache_write_tokens + call.cache_write_tokens,
+      total_tokens: totals.total_tokens + call.total_tokens,
+      reasoning_tokens: totals.reasoning_tokens + (call.reasoning_tokens ?? 0),
+      cost_total: totals.cost_total + (call.cost_total ?? 0),
+      truncated: totals.truncated || (isAssistantCall(call) && call.stop_reason === "length"),
+      call_log: [...totals.call_log, call],
     }),
     { ...ZERO_USAGE, call_log: [] },
   );
+  return summary;
 }

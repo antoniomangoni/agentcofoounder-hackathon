@@ -13,7 +13,7 @@ import {
   rootStartCommand,
   writeResult,
 } from "./result.js";
-import { collectUsageFromJsonLines } from "./usage.js";
+import { collectUsageFromJsonLines, isFinalAssistantTruncated } from "./usage.js";
 import type { RunResult } from "./types.js";
 import { validateResultObject } from "./validate-result.js";
 import { portHasListener, unavailableAppVerification, verifyGeneratedApp } from "./verify-app.js";
@@ -280,11 +280,15 @@ async function main(): Promise<void> {
 
   const usage = collectUsageFromJsonLines(await readFile(eventFile, "utf8"));
   const partial = await readPartialResult(outputDirectory);
-  const canVerifyApp = pi.exitCode === 0 && usage.model_calls > 0;
+  const truncatedFinal = isFinalAssistantTruncated(usage);
+  const canVerifyApp = pi.exitCode === 0 && usage.model_calls > 0 && !truncatedFinal;
   const startCommand = rootStartCommand(REPOSITORY_ROOT, outputDirectory);
-  let verification = unavailableAppVerification(
-    canVerifyApp ? "app verification had not completed" : "Pi did not complete with audited model usage",
-  );
+  const unverifiedReason = truncatedFinal
+    ? "final assistant message was truncated (stop_reason=length)"
+    : canVerifyApp
+      ? "app verification had not completed"
+      : "Pi did not complete with audited model usage";
+  let verification = unavailableAppVerification(unverifiedReason);
   let result = composeResult(partial, usage, pi.exitCode, verification, portReclamation, startCommand);
   const appResultPath = path.join(outputDirectory, "result.json");
   const rootResultPath = path.join(REPOSITORY_ROOT, "result.json");

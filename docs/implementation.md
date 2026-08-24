@@ -22,7 +22,7 @@ Official judging uses a **hidden idea** and private browser journeys. The commit
 
 Constraints that stay fixed in v1:
 
-- One Pi call. Do not change the runner. The appended system prompt remains a cacheable GLM-5.2 prefix.
+- One Pi call. The runner still owns both `result.json` files. It records `stop_reason` / `truncated` from Pi’s event stream and skips app verification when the **final** assistant message was truncated. It does not change `composeResult` status rules. The appended system prompt remains a cacheable GLM-5.2 prefix.
 - `CHALLENGE_THINKING` stays `off` unless a later measurement shows reasoning pays for itself.
 - No new npm packages. No backend or external API; see [`storage.md`](storage.md).
 - Node 22.19.x, Pi `@earendil-works/pi-coding-agent@0.84.1`.
@@ -44,7 +44,7 @@ flowchart LR
 
 - **Compile-time graph:** `src/product-model.json` is the plan the rest of the run executes.
 - **Runtime store:** one in-memory graph, one persistence key per product, one React context (`GraphProvider`). Composers do not own stores.
-- **v1 runner:** unchanged. [`src/run-challenge.ts`](../src/run-challenge.ts) still prepares `output/app/` from `app-template/`, appends [`solution/system-prompt.md`](../solution/system-prompt.md) + [`contract-public/journeys.md`](../contract-public/journeys.md) + `output/app/AGENTS.md` (the copy of [`app-template/AGENTS.md`](../app-template/AGENTS.md) made by `prepareOutput`), and loads [`solution/skills/mvp-builder`](../solution/skills/mvp-builder/SKILL.md) plus [`solution/extensions/protected-paths.ts`](../solution/extensions/protected-paths.ts).
+- **v1 runner:** prepares `output/app/` from `app-template/`, appends [`solution/system-prompt.md`](../solution/system-prompt.md) + [`contract-public/journeys.md`](../contract-public/journeys.md) + `output/app/AGENTS.md` (the copy of [`app-template/AGENTS.md`](../app-template/AGENTS.md) made by `prepareOutput`), and loads [`solution/skills/mvp-builder`](../solution/skills/mvp-builder/SKILL.md) plus [`solution/extensions/protected-paths.ts`](../solution/extensions/protected-paths.ts). The usage collector also copies `message.stopReason` onto `call_log` and sets `truncated` when an assistant call hit `length`. That is the only runner carve-out.
 
 ### Proposed file tree (later coding pass)
 
@@ -190,12 +190,12 @@ export interface GraphSnapshot {
 
 **Pick: `src/product-model.json` plus `loadProductModel(raw: unknown)`.**
 
-Vite can import a committed valid JSON file so `npm run build` and `--prepare-only` stay green. The loader validates *shape* at runtime. No config change is needed: [`app-template/tsconfig.json`](../app-template/tsconfig.json) already sets `resolveJsonModule: true`.
+Vite can import a committed valid JSON file so `npm run build` and `--prepare-only` stay green. The loader validates *shape* and *references* at runtime: every `derived.entity` must name an entity, `derived.attribute` / `derived.where.attribute` must name an attribute on that entity, `sum-number` must point at a `number` attribute, and `count-nodes-where` must have `where`. Broken refs are the invalid-model shell, not a silent `0` from `store.derive`. `links[].from` / `links[].to` are not checked — there is no composer path for links. No config change is needed: [`app-template/tsconfig.json`](../app-template/tsconfig.json) already sets `resolveJsonModule: true`.
 
 | Failure | Outcome |
 | --- | --- |
 | Invalid JSON syntax | `tsc` / Vite build fails; Pi repairs the file |
-| Valid JSON, wrong shape | App still builds and starts; binder shows the invalid-model state |
+| Valid JSON, wrong shape or broken derived refs | App still builds and starts; binder shows the invalid-model state |
 | Valid TS object, wrong types | Would fail `tsc` and is harder for Pi to repair than JSON |
 
 Rejected: `product-model.ts` as the Pi artifact. Type errors and import syntax waste repair tokens.
@@ -236,7 +236,7 @@ This is a product affordance for accidental data loss — something a browser ju
 The app must still start at `http://localhost:3000` and pass `npm run build`.
 
 - **Empty model** (`entities.length === 0`, valid JSON): `AppShell` with the model `title` if any, otherwise a short ready-state. No graph jargon. Copy stays product-neutral, e.g. “Ready to build.” This is the seed / `--prepare-only` path.
-- **Invalid model** (wrong shape after parse): same shell plus a recoverable message that the product definition could not be read. Do not crash the tree.
+- **Invalid model** (wrong shape, or a derived query that fails the [reference checks](#model-format-json--typed-loader)): same shell plus a recoverable message that the product definition could not be read. Do not crash the tree.
 - Official challenge runs must not stay on these states; Pi writes a real model or takes the [escape hatch](#escape-hatch).
 
 ### Escape hatch
@@ -324,21 +324,40 @@ There is no `subscribe.ts` and no `SliceSpec` union. Per-slice change detection 
 
 ### Size budget
 
+The 302-line `graph/` ceiling was pointed at the wrong files. Book-3 (Qwen, after `setup.ts` isolation; `docs/personal/eval/book-result-3.json`) opened every graph module and every composer, and did not open kernel tests. The efficiency risk is the surface Pi actually reads. The old ceiling’s rationale is unchanged; only its target moves.
+
+Book-3 `read` tool, product source:
+
+| Surface | Lines then | Opened |
+| --- | --- | --- |
+| `graph/types.ts` | 57 | yes |
+| `graph/load-model.ts` | 55 | yes |
+| `graph/store.ts` | 104 | yes |
+| `graph/persist.ts` | 41 | yes |
+| `graph/GraphProvider.tsx` | 45 | yes |
+| `composers/` (six files) | 320 | yes, wholesale |
+| `App.tsx` | 72 | yes |
+| `test/setup.ts` | 8 | yes |
+| `main.tsx` | 13 | yes |
+| `graph/*.kernel.test.ts` | 206 | no |
+
+After derived reference checks, `graph/` is 321 lines and the opened seed is 734.
+
 | Budget | Limit |
 | --- | --- |
-| `graph/` excluding tests | ≤ 302 lines |
+| Opened seed (`graph/` + `composers/` + `App.tsx` + `setup.ts` + `main.tsx`) | ≤ 734 lines |
 | Each composer | ≤ 120 lines |
-| Skill instructions for file reads | Read `types.ts`, `product-model.json`, `App.tsx`, and composer **prop types** only. Do not open `store.ts` / `persist.ts` / `GraphProvider.tsx` unless a kernel test fails. |
+| Skill instructions for file reads | Read `types.ts`, `product-model.json`, `App.tsx`, and composer **prop types** only. Do not open `store.ts` / `persist.ts` / `GraphProvider.tsx` unless a kernel test fails. Book-3 ignored this. |
 
-If the kernel grows past the budget, delete features; do not add a query language. The 302 ceiling is the one exception: it was raised by exactly two lines for the per-product persist key ([`storage.md`](storage.md)), waiving this rule once. Do not raise it again.
+If the opened seed grows past 734, delete features; do not add a query language. This is not a second waiver of the old 302 rule — that target is retired.
 
-The budget is not decoration: seed size is the main risk to the efficiency claim this whole design rests on. Today’s seed is a 13-line `App.tsx`. Even at budget this is ~900 lines of code sitting in a workspace Pi will explore before it writes anything, and the read instruction above is a request to a model, not an enforced limit. [Later eval](#later-eval-and-follow-ups) measures whether the bet actually pays.
+[`app-template/src/test/setup.ts`](../app-template/src/test/setup.ts) must `cleanup()` and `localStorage.clear()` in `afterEach`. Testing Library 16.3.0 registers auto-cleanup only when `afterEach` is a global; this seed does not set `globals: true`. Without the explicit cleanup, every `render(<App />)` stacks another app and inherits persisted records — that is what killed book-2.
 
 ### Tests
 
 | Suite | Where | Runs in the generated app? | Purpose |
 | --- | --- | --- | --- |
-| Kernel | `src/graph/*.kernel.test.ts` | **No** — excluded | apply/undo, persist malformed payload, loader shape check |
+| Kernel | `src/graph/*.kernel.test.ts` | **No** — excluded | apply/undo, persist malformed payload, loader shape and derived-ref checks against an **inline** empty model (do not import the live `product-model.json`) |
 | Product journeys | `src/**/*.test.tsx` added by Pi | Yes | Testing Library: user-visible add/edit/delete/filter/derive/persist |
 
 **Kernel tests must not run inside the generated app.** [`verifyGeneratedApp`](../src/verify-app.ts) runs the app’s Vitest with `--passWithNoTests=false` and requires `numTotalTests > 0` with nothing failed, skipped, or todo. That check is meaningful today *only because the seed ships zero tests* — it is the harness’s one independent piece of evidence that Pi authored a real test. The `tests_run` journeys in `report.partial.json` are self-reported prose; [`composeResult`](../src/result.ts) requires them non-empty and passing but never compares them to files on disk.
@@ -538,6 +557,8 @@ Also audit each run, since neither is enforced:
 
 Optional after a reliable single-shot run: a second Pi step (extract model, then bind) to exploit GLM-5.2 prompt cache. Not v1.
 
+Qwen usage records carry `reasoning: 0` while the assistant content is mostly reasoning (book-2: ~73% of output). `reasoning_tokens` — advertised in the README as an audit field — is structurally meaningless for this provider. `stop_reason` is the field that actually diagnoses a 16,384-token dump.
+
 ### Before any v2 that composes Pi components
 
 Two claims in [The harness](#the-harness) are hypotheses, and both are cheap to settle. Root `node_modules/` is not installed in a fresh clone, so neither has been checked here.
@@ -563,7 +584,7 @@ Accepted knowingly, recorded so they are not rediscovered as surprises:
 - New npm dependencies, LangChain, AutoGen, RDF libraries
 - A backend or external API
 - Graph visualization as the product UI
-- Changing anything under [`src/`](../src/) in v1 — the runner, `prepare-output.ts`, and the verification checks all stay as they are
+- Changing anything under [`src/`](../src/) in v1 except the usage-collector carve-out (`stop_reason`, `truncated`, and `canVerifyApp` false when the final assistant message was truncated). `prepare-output.ts` and the verification commands stay as they are. `harness_checks[].result` still cannot express “not run” (`contract-public` is frozen); skipped checks are written `failed` and the `journey` string says they were not run.
 - A hard write-block on `src/graph/` in the protected-paths extension
 - Hidden prompts, hidden tests, or scoring code
 - Editing [`docs/organizer-checklist.md`](organizer-checklist.md) or [`contract-public/`](../contract-public/)

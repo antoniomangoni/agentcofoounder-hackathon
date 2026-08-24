@@ -40,6 +40,7 @@ const usage: UsageSummary = {
   total_tokens: 18,
   reasoning_tokens: 0,
   cost_total: 0.01,
+  truncated: false,
   call_log: [
     {
       index: 1,
@@ -85,6 +86,47 @@ describe("result contract", () => {
     );
   });
 
+  it("keeps success when an earlier assistant call truncated and the run recovered", () => {
+    const recovered: UsageSummary = {
+      model_calls: 2,
+      input_tokens: 30,
+      output_tokens: 16392,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      total_tokens: 16422,
+      reasoning_tokens: 0,
+      cost_total: 0.012,
+      truncated: true,
+      call_log: [
+        {
+          index: 1,
+          model: "test-model",
+          input_tokens: 10,
+          output_tokens: 16384,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          total_tokens: 16394,
+          cost_total: 0.01,
+          stop_reason: "length",
+        },
+        {
+          index: 2,
+          model: "test-model",
+          input_tokens: 20,
+          output_tokens: 8,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          total_tokens: 28,
+          cost_total: 0.002,
+          stop_reason: "stop",
+        },
+      ],
+    };
+    expect(composeResult(partial, recovered, 0, verification, portReclamation, ROOT_START_COMMAND).status).toBe(
+      "success",
+    );
+  });
+
   it("overrides success when telemetry contains no model calls", async () => {
     const zeroUsage: UsageSummary = {
       model_calls: 0,
@@ -95,6 +137,7 @@ describe("result contract", () => {
       total_tokens: 0,
       reasoning_tokens: 0,
       cost_total: 0,
+      truncated: false,
       call_log: [],
     };
     const result = composeResult(partial, zeroUsage, 0, verification, portReclamation, ROOT_START_COMMAND);

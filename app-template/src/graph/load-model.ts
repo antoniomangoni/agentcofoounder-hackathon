@@ -47,9 +47,28 @@ function isDerived(v: unknown): v is Record<string, unknown> {
 
 export type LoadedModel = { ok: true; model: ProductModel } | { ok: false };
 
+function derivedRefsOk(model: ProductModel): boolean {
+  const entities = new Map(model.entities.map((entity) => [entity.id, entity]));
+  for (const query of model.derived) {
+    const entity = entities.get(query.entity);
+    if (!entity) return false;
+    const attributes = new Map(entity.attributes.map((attribute) => [attribute.id, attribute]));
+    if (query.attribute !== undefined && !attributes.has(query.attribute)) return false;
+    if (query.where !== undefined && !attributes.has(query.where.attribute)) return false;
+    if (query.kind === "count-nodes-where" && query.where === undefined) return false;
+    if (query.kind === "sum-number") {
+      const attribute = query.attribute ? attributes.get(query.attribute) : undefined;
+      if (!attribute || attribute.kind !== "number") return false;
+    }
+  }
+  return true;
+}
+
 export function loadProductModel(raw: unknown): LoadedModel {
   if (!rec(raw) || !str(raw.title)) return { ok: false };
   if (!arr(raw.entities, isEntity) || !arr(raw.links, isLink)) return { ok: false };
   if (!arr(raw.journeys, isJourney) || !arr(raw.derived, isDerived) || !arr(raw.assumptions, str)) return { ok: false };
-  return { ok: true, model: raw as unknown as ProductModel };
+  const model = raw as unknown as ProductModel;
+  if (!derivedRefsOk(model)) return { ok: false };
+  return { ok: true, model };
 }
