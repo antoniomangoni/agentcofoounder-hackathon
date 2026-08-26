@@ -198,6 +198,11 @@ Vite can import a committed valid JSON file so `npm run build` and `--prepare-on
 | Valid JSON, wrong shape or broken derived refs | App still builds and starts; binder shows the invalid-model state |
 | Valid TS object, wrong types | Would fail `tsc` and is harder for Pi to repair than JSON |
 
+**The reference checks are unexercised.** No Pi run has produced a model that fails them. The four attempts against the seed that carries these checks (pantry ×2, timer ×2) all truncated before writing anything; the two earlier runs predate the checks. Two properties of the loader matter more than the checks until one does fire:
+
+- The **empty seed passes.** `title: ""` is a valid string and empty arrays satisfy every reference check, so `loadProductModel` returns `ok` on an untouched `product-model.json`. A run that wrote a good model and a run that never wrote at all are indistinguishable here; `truncated` separates them, not the loader.
+- A rejection is **silent about why.** `{ ok: false }` carries no reason and no field name, so Pi has to read `load-model.ts` and bisect its own model. That is the repair-loop shape that cost book-1 and book-2 their runs, on a path nothing has walked yet.
+
 Rejected: `product-model.ts` as the Pi artifact. Type errors and import syntax waste repair tokens.
 
 ### Links vs attributes
@@ -218,6 +223,8 @@ v1 keeps `EdgeRecord` and the two edge ops. The delete cascade is the one genuin
 
 **Decision rule:** if all three [eval ideas](#later-eval-and-follow-ups) produce `links: []`, cut edges from v1 entirely and describe the result honestly — a model-driven record store, not a graph. The framing is worth less than the lines.
 
+**The rule cannot fire as written.** Only book has ever produced a model — three runs, `links: []` each time. Pantry and timer truncated before writing one, so two of the three data points do not exist and will not exist without a contract change that gets this model writing earlier. Re-state the rule over the models that exist, or hold it until a run finishes on a second idea; do not read the missing data as agreement.
+
 ### Revertible effects: one undo, not a history
 
 `apply(op)` returns an `undo` function. Specified first as purely internal — “composer teardown, replacing an edit, clearing a field” — it then had no caller anywhere in this document. Those are all *forward* ops: an edit is an `upsert-node`, clearing a field is an `upsert-node` with `""`. [Persist](#persist-persistts) declines the one remaining candidate, keeping a write in memory rather than reverting it when the save fails. An inverse nothing invokes is lines charged against the [size budget](#size-budget) to support a claim in the [paper mapping](#paper-mapping).
@@ -237,7 +244,7 @@ The app must still start at `http://localhost:3000` and pass `npm run build`.
 
 - **Empty model** (`entities.length === 0`, valid JSON): `AppShell` with the model `title` if any, otherwise a short ready-state. No graph jargon. Copy stays product-neutral, e.g. “Ready to build.” This is the seed / `--prepare-only` path.
 - **Invalid model** (wrong shape, or a derived query that fails the [reference checks](#model-format-json--typed-loader)): same shell plus a recoverable message that the product definition could not be read. Do not crash the tree.
-- Official challenge runs must not stay on these states; Pi writes a real model or takes the [escape hatch](#escape-hatch).
+- Official challenge runs must not stay on these states; Pi writes a real model or takes the [escape hatch](#escape-hatch). **Six Qwen runs have anyway** (pantry ×3, timer ×3), every one a `stop_reason: length` dump before the first write. They land on the *empty* state, which is valid — the loader returns `ok` — so nothing in the app can detect it. `truncated` and the `harness_checks[].journey` prefix are what report it.
 
 ### Escape hatch
 
@@ -259,6 +266,8 @@ What “unused code is fine” costs, stated so the coding pass does not redisco
 - `npm run build` runs `tsc --noEmit` with `include: ["src", ...]`, so an abandoned kernel is still typechecked. Unused kernel code must compile on its own — no unresolved imports, no reliance on a binder that no longer exists.
 - The empty default `product-model.json` still imports and parses cleanly, so an untouched model file never breaks the build.
 - Kernel tests do **not** pad the app’s test run, because they are excluded (see [Tests](#tests)). Without that exclusion, a timer app with zero product tests would pass every harness check on the strength of the seed’s own tests — the escape hatch is the case where that failure is most likely and least visible.
+
+**The hatch has never been reached.** Three timer runs ended in a 16,384-token dump before `App.tsx` was replaced. Pi did not invent timer entities in any of them, which is the good half: the hatch was abandoned, not faked. But the two claims this section exists to protect — that an abandoned kernel still typechecks, and that the test exclusion stops the seed’s own tests from carrying an app with none of its own — still have no finished-app evidence behind them.
 
 This is also the one place the design earns the paper’s withdrawal guarantee outright: the kernel is a component that can be removed whole, leaving a system that still builds and runs as though it had never been there. It holds at the file level, across a build — which is why the [mapping](#paper-mapping) keeps it separate from runtime temporal composability.
 
@@ -459,9 +468,9 @@ The current skill’s steps 4–5 and 7 carry the guidance that maps onto the ~1
 
 The merged skill:
 
-1. Decide record-keeping vs escape hatch. Record the decision in `assumptions`.
-2. If record-keeping: extract ProductGraph; apply the links-vs-attributes rule; write `src/product-model.json` only. Include a domain-neutral JSON sketch (entity `item`, optional text, `count-nodes-where`, `links: []`).
-3. The shipped binder is finished. Do not edit `App.tsx` unless a named journey is missing. Read `types.ts`, `product-model.json`, and `App.tsx` only. One sentence on FilterBar labels (`{label} present`, `{label}: {choice}`).
+1. Decide record-keeping vs escape hatch. Record the decision in `assumptions`. The next tool call that touches `src/` is a write. Write as soon as the model or stub can be stated; do not confirm it against composer or kernel source first. Keep that decision message short — it is the one that overruns the 16,384-token cap on Qwen.
+2. If record-keeping: write a complete `src/product-model.json` immediately; apply the links-vs-attributes rule. Include a domain-neutral JSON sketch (entity `item`, optional text, `count-nodes-where`, `links: []`). If hatch: write a compiling stub `App.tsx` first, then fill.
+3. After that write: the shipped binder is finished. Do not edit `App.tsx` unless a named journey is missing. Read `types.ts`, `product-model.json`, and `App.tsx` only. One sentence on FilterBar labels (`{label} present`, `{label}: {choice}`).
 4. *(retained)* Accessible controls, validation, empty states, errors, responsive layout. Handle duplicate or repeated actions, boundary values, malformed stored data, and recoverable storage failures where relevant.
 5. *(retained)* Keep components focused, separate concerns, avoid duplication. Use only lockfile dependencies.
 6. Add one Testing Library file covering every implied journey. `persist` remounts `<App />`; do not read `localStorage` keys. Use each `journey` string later in `tests_run`.
@@ -542,22 +551,22 @@ On prompt cache: the appended system prompt is a stable cacheable prefix, but fi
 
 ### After the coding pass
 
-`npm run challenge` on:
+Measured on Qwen (`Qwen/Qwen3.8-27B-FP8`, thinking off). Numbers live in gitignored `docs/personal/eval/`; this section is only so a later pass does not treat the list below as unrun.
 
-1. The committed book-lending placeholder.
-2. A second local idea that is still record-keeping but not books (e.g. pantry inventory).
-3. A third idea that **triggers the escape hatch** (e.g. a timer) to prove Pi does not fake a graph. Not optional — this is the run where the [test exclusion](#tests) and the unused-kernel typecheck are actually exercised.
+1. **Book.** Finished on the local [`docs/personal/eval/book-lending.txt`](../docs/personal/eval/book-lending.txt) (book-3: `status: success`, harness green, kernel `diff` empty). That file is a normalized restatement of the committed placeholder. [`contract-public/development-idea.txt`](../contract-public/development-idea.txt) itself has not been run.
+2. **Pantry.** Four Qwen attempts before the early-write rule dumped at 16,384 tokens with an empty seed. pantry-3 (after that rule) wrote a complete `Home Pantry` model on call 5, then hit the 15-minute clock before tests or `report.partial.json`. `loadProductModel` accepts it. Kernel and composers unchanged.
+3. **Timer.** Same pre-rule dump. timer-3 replaced `App.tsx` with a purpose-built timer, left `product-model.json` empty, left `src/graph/` alone, and started a product test file — then 124. The [escape hatch](#escape-hatch) was taken, not faked. Unused-kernel typecheck still has not been exercised by a *finished* timer app (no harness).
 
-Success: `status: success`, both `result.json` destinations, harness checks green, `tests_run` names user journeys, `cost_total` at or below baseline. Kernel changes from (2) or (3) must stay domain-neutral.
+Success is still `status: success`, both `result.json` destinations, harness checks green, `tests_run` naming user journeys, `cost_total` at or below a baseline we do not have. Kernel changes from (2) or (3) must stay domain-neutral. The early-write rule moved the Qwen wall from “no write” to “write, then clock.” GLM-5.2, prefix cache, and a seed baseline remain open.
 
-Also audit each run, since neither is enforced:
+Also audit each finished run, since neither is enforced:
 
 - `diff -r app-template/src/graph output/app/src/graph` — did Pi respect the kernel boundary?
 - Count test files in `output/app/src` that are not `*.kernel.test.ts` — did Pi actually write the journeys it reported?
 
 Optional after a reliable single-shot run: a second Pi step (extract model, then bind) to exploit GLM-5.2 prompt cache. Not v1.
 
-Qwen usage records carry `reasoning: 0` while the assistant content is mostly reasoning (book-2: ~73% of output). `reasoning_tokens` — advertised in the README as an audit field — is structurally meaningless for this provider. `stop_reason` is the field that actually diagnoses a 16,384-token dump.
+Qwen usage records carry `reasoning: 0` while the assistant content is mostly reasoning (book-2: ~73% of output). `reasoning_tokens` — advertised in the README as an audit field — is structurally meaningless for this provider. `stop_reason` is the field that actually diagnoses a 16,384-token dump. The truncation gate (`canVerifyApp` false when the final assistant message is `length`) is what keeps those dumps from recording a false build/dev pass on an untouched seed.
 
 ### Before any v2 that composes Pi components
 
@@ -572,10 +581,10 @@ If the surface is small and skills sit in the prefix, the composing v2 is not wo
 
 Accepted knowingly, recorded so they are not rediscovered as surprises:
 
-- **Seed size vs. exploration cost.** ~900 lines of kernel and composers in a workspace Pi explores before writing. The read budget is a request, not a limit. Unresolved until the baseline comparison above.
+- **Seed size vs. exploration cost.** ~900 lines of kernel and composers in a workspace Pi explores before writing. The read budget is a request, not a limit — it now has a failure mode attached. Pantry-2 opened all six composers, `load-model.ts`, `setup.ts`, both Vitest configs and the kernel internals, then spent one whole 16,384-token message reasoning and wrote nothing. Book-3 did the same wholesale read and finished. On this model, exploration and the output cap compete for the same run. Still unresolved until the baseline comparison above.
 - **Kernel boundary is prompt-enforced.** `protected-paths.ts` cannot distinguish a legitimate escape-hatch rewrite from Pi wandering into `store.ts`. Measured by the diff audit, not prevented.
 - **Journey honesty is partly self-reported.** The test exclusion restores the *existence* check — the app’s Vitest run contains only Pi’s tests. It does not verify that a `tests_run` journey string describes what the test actually asserts.
-- **The graph framing may collapse.** If links stay empty across all three eval ideas, this is a model-driven record store. That is still a good product; the paper mapping is what would need rewriting, not the code.
+- **The graph framing may collapse.** If links stay empty across all three eval ideas, this is a model-driven record store. Every model produced so far — book-1, book-2, book-3 — has `links: []`, and the other two ideas never produced one, so the evidence points that way without being complete; see [Links may be dead weight](#links-may-be-dead-weight). That is still a good product; the paper mapping is what would need rewriting, not the code.
 - **The paper’s dynamic system in this repo is the harness, not the app.** Its research-context section names two motivating cases: plugin systems, and *self-evolving agent harnesses*. This repo is the second, and v1 applies the paper’s ideas to the app it generates instead. The choice is deliberate — see [The harness](#the-harness) for what that layer does and does not earn, and why the cost argument favours leaving it alone — but the framing is aimed at the layer with less to demonstrate, and calling this document a harness design overstates which half it is about. Accepted for v1; [revisit](#before-any-v2-that-composes-pi-components) only if the hook surface turns out to be worth it.
 
 ## Out of scope

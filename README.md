@@ -92,6 +92,12 @@ The raw event stream and Pi session files are retained for audit. Official judgi
 
 `reasoning_tokens` and `cost_total` are included as additional audit fields. No efficiency score is calculated here because the public specification must first define the cache-write weighting and whether ranking uses the custom token formula or Pi's monetary cost.
 
+`call_log` records one entry per model call. Assistant entries carry `stop_reason`, and the top-level `truncated` flag is true when any assistant message ended at the output-token cap (`length`). When the *final* assistant message is truncated, the runner treats the model run as incomplete and skips Vitest, the build, and the startup probe. `harness_checks` still lists all three, because the schema has no way to say "not run", but each `result` is `failed` and the `journey` string gives the reason. Read `truncated` before reading `harness_checks`: a truncated run's failed checks are not evidence about the generated app.
+
+`truncated` and the per-call `stop_reason` are additive fields. `contract-public/result.schema.json` permits them through `additionalProperties` and does not require them, so the frozen contract did not have to change. Two consequences for judging: a stricter validator may drop them, and a run that produced no application at all still validates as a well-formed result. Schema validity is not evidence of work.
+
+`reasoning_tokens` is only as trustworthy as the provider's usage records. A provider that reports `reasoning: 0` while emitting mostly reasoning makes the field meaningless; `stop_reason` is what diagnoses those runs.
+
 ## Develop the harness
 
 The starter deliberately makes one autonomous Pi invocation. Possible participant improvements include:

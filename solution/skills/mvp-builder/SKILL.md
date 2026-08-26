@@ -5,14 +5,14 @@ description: Turn a non-technical product idea into a small, tested browser appl
 
 # MVP Builder
 
-1. Decide record-keeping vs escape hatch. Record the decision in `assumptions`.
+1. Decide record-keeping vs escape hatch. Record the decision in `assumptions`. The next tool call that touches a file under `src/` is a write. Write as soon as you can state the model or stub; do not confirm it against kernel or composer source first. Keep that decision message short.
    If the idea is not a collection of records (quiz, timer, calculator, multi-step wizard, canvas, etc.):
    - Do **not** invent entities to satisfy the kernel.
    - Leave or ignore `product-model.json`.
-   - Replace `App.tsx` with a purpose-built UI.
+   - Write a compiling stub `App.tsx` first (duration fields, start / pause / reset, remaining time, done state). Do not plan the whole app in one message. Then fill it.
    - Keep the kernel on disk; unused code is fine.
    - Add Testing Library tests for the journeys the idea actually implies.
-2. If record-keeping: extract ProductGraph (entities, attributes, journeys, derived values, assumptions). A second entity exists only if the idea treats that thing as its own record. Write `src/product-model.json` only. Do not rewrite `src/graph/`. Do not edit `App.tsx` unless a journey the model names is missing from the shipped binder. Shape:
+2. If record-keeping: write a complete `src/product-model.json` immediately. Extract ProductGraph (entities, attributes, journeys, derived values, assumptions). A second entity exists only if the idea treats that thing as its own record. Do not rewrite `src/graph/`. Do not edit `App.tsx` unless a journey the model names is missing from the shipped binder. Shape:
 
 ```json
 {
@@ -47,7 +47,7 @@ description: Turn a non-technical product idea into a small, tested browser appl
 ```
 
 FilterBar options (do not open composer source): optional text → `{label} present`; boolean → the attribute label; choice → `{label}: {choice}`. That is how “has a note” / “currently out” is expressed.
-3. Read only `src/graph/types.ts`, `src/product-model.json`, and `src/App.tsx`. Do not invent a parallel architecture. Do not open `store.ts`, `persist.ts`, `GraphProvider.tsx`, or composer modules unless a kernel test fails.
+3. After that write, read only `src/graph/types.ts`, `src/product-model.json`, and `src/App.tsx`. Do not invent a parallel architecture. Do not open `store.ts`, `persist.ts`, `GraphProvider.tsx`, or composer modules unless a kernel test fails.
 4. Implement accessible controls, validation, empty states, errors, and responsive layout. Handle duplicate or repeated actions, boundary values, malformed stored data, and recoverable storage or runtime failures where relevant.
 5. Keep components focused, separate concerns, and avoid duplication so another developer or agent can extend the app without a rewrite. Use only the dependencies already installed from the committed lockfile. Do not add packages or run dependency-install commands.
 6. Add one Testing Library file covering every implied journey and any observable behavior the model does not capture. For `persist`, remount `<App />` and assert the data survived. Do not read `localStorage` keys or open `persist.ts`. Use each `journey` string later in `tests_run`.
