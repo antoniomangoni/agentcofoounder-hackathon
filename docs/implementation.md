@@ -267,7 +267,7 @@ What “unused code is fine” costs, stated so the coding pass does not redisco
 - The empty default `product-model.json` still imports and parses cleanly, so an untouched model file never breaks the build.
 - Kernel tests do **not** pad the app’s test run, because they are excluded (see [Tests](#tests)). Without that exclusion, a timer app with zero product tests would pass every harness check on the strength of the seed’s own tests — the escape hatch is the case where that failure is most likely and least visible.
 
-**The hatch has never been reached.** Three timer runs ended in a 16,384-token dump before `App.tsx` was replaced. Pi did not invent timer entities in any of them, which is the good half: the hatch was abandoned, not faked. But the two claims this section exists to protect — that an abandoned kernel still typechecks, and that the test exclusion stops the seed’s own tests from carrying an app with none of its own — still have no finished-app evidence behind them.
+**The hatch has been taken** (timer-3a: 9/9 tests and a green build, killed before `report.partial.json`; timer-5: replaced `App.tsx`, empty model, kernel on disk, died in test repair). Pi did not invent timer entities. The two claims this section exists to protect — that an abandoned kernel still typechecks, and that the test exclusion stops the seed’s own tests from carrying an app with none of its own — still have no *harness-finished* timer behind them.
 
 This is also the one place the design earns the paper’s withdrawal guarantee outright: the kernel is a component that can be removed whole, leaving a system that still builds and runs as though it had never been there. It holds at the file level, across a build — which is why the [mapping](#paper-mapping) keeps it separate from runtime temporal composability.
 
@@ -468,8 +468,8 @@ The current skill’s steps 4–5 and 7 carry the guidance that maps onto the ~1
 
 The merged skill:
 
-1. Decide record-keeping vs escape hatch. Record the decision in `assumptions`. The next tool call that touches `src/` is a write. Write as soon as the model or stub can be stated; do not confirm it against composer or kernel source first. Keep that decision message short — it is the one that overruns the 16,384-token cap on Qwen.
-2. If record-keeping: write a complete `src/product-model.json` immediately; apply the links-vs-attributes rule. Include a domain-neutral JSON sketch (entity `item`, optional text, `count-nodes-where`, `links: []`). If hatch: write a compiling stub `App.tsx` first, then fill.
+1. Decide record-keeping vs escape hatch. Record the decision in `assumptions`. The next tool call that touches `src/` is a write. Write as soon as the model or stub can be stated; do not confirm it against composer or kernel source first. Keep that decision message short. This applies to every write, not just the first: whenever you can state what a file should contain, write it in that same message. Checkpoint `report.partial.json` immediately after the first source write.
+2. If record-keeping: write a complete `src/product-model.json` immediately; apply the links-vs-attributes rule. Include a domain-neutral JSON sketch (entity `item`, optional text, `count-nodes-where`, `links: []`). If hatch: write a compiling `App.tsx` skeleton first (real controls wired to state; behaviour may be TODO), then fill.
 3. After that write: the shipped binder is finished. Do not edit `App.tsx` unless a named journey is missing. Read `types.ts`, `product-model.json`, and `App.tsx` only. One sentence on FilterBar labels (`{label} present`, `{label}: {choice}`).
 4. *(retained)* Accessible controls, validation, empty states, errors, responsive layout. Handle duplicate or repeated actions, boundary values, malformed stored data, and recoverable storage failures where relevant.
 5. *(retained)* Keep components focused, separate concerns, avoid duplication. Use only lockfile dependencies.
@@ -553,11 +553,11 @@ On prompt cache: the appended system prompt is a stable cacheable prefix, but fi
 
 Measured on Qwen (`Qwen/Qwen3.8-27B-FP8`, thinking off). Numbers live in gitignored `docs/personal/eval/`; this section is only so a later pass does not treat the list below as unrun.
 
-1. **Book.** Finished on the local [`docs/personal/eval/book-lending.txt`](../docs/personal/eval/book-lending.txt) (book-3: `status: success`, harness green, kernel `diff` empty). That file is a normalized restatement of the committed placeholder. [`contract-public/development-idea.txt`](../contract-public/development-idea.txt) itself has not been run.
+1. **Book.** Finished on the local [`docs/personal/eval/book-lending.txt`](../docs/personal/eval/book-lending.txt) on Qwen (book-3) and on the ranked model (GLM-5.2, 27 Aug: `status: success`, harness green, 8/8 journeys, kernel and `App.tsx` untouched, €0.052, 274k `cache_read_tokens`). That file is a normalized restatement of the committed placeholder. [`contract-public/development-idea.txt`](../contract-public/development-idea.txt) itself has not been run.
 2. **Pantry.** Four Qwen attempts before the early-write rule dumped at 16,384 tokens with an empty seed. pantry-3 (after that rule) wrote a complete `Home Pantry` model on call 5, then hit the 15-minute clock before tests or `report.partial.json`. `loadProductModel` accepts it. Kernel and composers unchanged.
-3. **Timer.** Same pre-rule dump. timer-3 replaced `App.tsx` with a purpose-built timer, left `product-model.json` empty, left `src/graph/` alone, and started a product test file — then 124. The [escape hatch](#escape-hatch) was taken, not faked. Unused-kernel typecheck still has not been exercised by a *finished* timer app (no harness).
+3. **Timer.** Pre-rule dumps, then writes. timer-5 (standing write-now + skeleton stub) was `truncated: false`: skeleton `App.tsx` and checkpoint on call 5, fill + tests on call 6, then 124 in a `userEvent` + fake-timers repair tail. The [escape hatch](#escape-hatch) was taken, not faked. Unused-kernel typecheck still has no *harness-finished* timer app behind it.
 
-Success is still `status: success`, both `result.json` destinations, harness checks green, `tests_run` naming user journeys, `cost_total` at or below a baseline we do not have. Kernel changes from (2) or (3) must stay domain-neutral. The early-write rule moved the Qwen wall from “no write” to “write, then clock.” GLM-5.2, prefix cache, and a seed baseline remain open.
+Success is still `status: success`, both `result.json` destinations, harness checks green, `tests_run` naming user journeys, `cost_total` at or below a baseline we do not have. Kernel changes from (2) or (3) must stay domain-neutral. Qwen’s remaining timer wall is test repair, not the 16k cap. A seed baseline remains open. GLM-5.2 prefix cache is real on this provider (priced 0 in local `models.json`).
 
 Also audit each finished run, since neither is enforced:
 

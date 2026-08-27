@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { prepareOutput } from "./prepare-output.js";
+import { acquireRunLock, RunLockedError } from "./run-lock.js";
 import { auditAppPortAfterPi } from "./port-owner.js";
 import { signalProcessTree, terminateProcessTree, usesDetachedProcessGroup } from "./process-tree.js";
 import {
@@ -237,6 +238,18 @@ function timeoutFromEnvironment(): number {
 async function main(): Promise<void> {
   const args = parseArguments(process.argv.slice(2));
   const idea = await readFile(args.ideaFile, "utf8");
+  const lock = await acquireRunLock(REPOSITORY_ROOT, {
+    ideaFile: path.relative(REPOSITORY_ROOT, args.ideaFile) || args.ideaFile,
+    outputDirectory: args.outputDirectory,
+  });
+  try {
+    await runChallenge(args, idea);
+  } finally {
+    await lock.release();
+  }
+}
+
+async function runChallenge(args: Arguments, idea: string): Promise<void> {
   const outputDirectory = await prepareOutput(REPOSITORY_ROOT, args.outputDirectory);
   console.log(`Prepared clean application workspace: ${outputDirectory}`);
 
@@ -321,5 +334,11 @@ async function main(): Promise<void> {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  await main();
+  try {
+    await main();
+  } catch (error) {
+    if (!(error instanceof RunLockedError)) throw error;
+    console.error(error.message);
+    process.exitCode = 1;
+  }
 }

@@ -57,6 +57,9 @@ npm run challenge
 
 Use `--idea-file /path/to/idea.txt` to override the default for organizer testing or hidden evaluation.
 
+Runs hold an exclusive lock at `output/.challenge.lock` and cannot overlap; a second run exits 1
+without touching the first. See [docs/running-a-challenge.md](docs/running-a-challenge.md).
+
 For a setup-only check that does not call a model:
 
 ```bash
