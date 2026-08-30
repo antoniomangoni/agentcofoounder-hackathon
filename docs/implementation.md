@@ -570,12 +570,23 @@ Qwen usage records carry `reasoning: 0` while the assistant content is mostly re
 
 ### Before any v2 that composes Pi components
 
-Two claims in [The harness](#the-harness) are hypotheses, and both are cheap to settle. Root `node_modules/` is not installed in a fresh clone, so neither has been checked here.
+Two claims in [The harness](#the-harness) were hypotheses. Root `node_modules/` is installed now, so the first one is settled and the second is not.
 
-- Install root dependencies and read the `ExtensionAPI` type declarations. How many lifecycle hooks does Pi 0.84.1 actually expose? “The extension surface is small” has only ever been inferred from the two hooks `protected-paths.ts` happens to use, which is not evidence.
-- Establish where a dynamically loaded skill lands — the cacheable system prefix, or the conversation like a file Pi reads. The whole affordability argument turns on that, and the [baseline](#baseline-first--before-the-coding-pass) measures prefix stability anyway, so the marginal cost of answering it is close to zero.
+**Settled: the extension surface is not small.** `ExtensionAPI` in `node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts` (0.84.1) declares **33** `on(event, handler)` overloads, not the two `protected-paths.ts` uses. Beyond the lifecycle hooks it exposes `registerTool`, `registerCommand`, `registerFlag`, `registerShortcut`, `registerProvider`, `sendMessage` / `sendUserMessage`, `appendEntry`, and — relevant to any compound design — `setActiveTools`, `setModel`, and `setThinkingLevel`, all callable while a session is running. The hooks worth naming here:
 
-If the surface is small and skills sit in the prefix, the composing v2 is not worth its cost and the framing risk below is simply accepted. If the hooks are rich and skill content lands in the conversation, the temporal half of the paper is affordable at the harness layer and worth a prototype.
+- `context` rewrites the message list before each provider request. Input is 91% of a Qwen run's tokens; this is the hook that could touch that term.
+- `tool_call` / `tool_result` intercept and can rewrite either side of a tool invocation.
+- `session_before_compact` / `session_compact` expose compaction.
+- `before_provider_request` / `after_provider_response` see the raw payload, which is where a cache-token discrepancy would be visible.
+
+`registerTool` takes a TypeBox schema and a `ToolDefinition` carrying `promptSnippet` and `promptGuidelines` (both appended to the default system prompt, i.e. the cacheable prefix), `prepareArguments`, `executionMode`, and `constrainedSampling: { type: "json_schema", strict: "prefer" | "require" }` — provider-side constrained decoding. That last field is the direct answer to timer-6's failure mode, where 534 of 535 calls carried malformed tool arguments.
+
+Implementation detail so a later pass does not rediscover it: `typebox@1.3.7` is a **nested** dependency of `pi-coding-agent` and is not resolvable from the repository root, and Pi does not re-export `Type`. Registering a tool therefore requires adding `typebox` at that exact version to the root `package.json`.
+
+**Still open: where a dynamically loaded skill lands** — the cacheable system prefix, or the conversation like a file Pi reads. The whole affordability argument for dynamic skills turns on that, and the [baseline](#baseline-first--before-the-coding-pass) measures prefix stability anyway, so the marginal cost of answering it is close to zero.
+
+The "if the surface is small, v2 is not worth its cost" branch is therefore closed in favour of the other one: the hooks are rich, and composition at the harness layer is affordable enough to prototype. What that does **not** settle is whether it pays — a registered tool adds its definition to every request, so any such change has to be measured against a same-idea run, not argued from the surface being available.
+
 
 ## Open risks
 
