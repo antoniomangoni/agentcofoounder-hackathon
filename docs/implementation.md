@@ -16,7 +16,7 @@ Official judging uses a **hidden idea** and private browser journeys. The commit
 | Axis | How this design helps | How it can fail |
 | --- | --- | --- |
 | **Readiness** | Composers render forms, lists, filters, counts with semantic HTML and names taken from the model | Shipping a node/edge explorer, or forcing a fake graph onto a non-record product |
-| **Efficiency** | Kernel and composers ship in [`app-template/`](../app-template/) so Pi writes a model and bindings, not an architecture | A large kernel that Pi reads end-to-end; long prompts that dump paper theory. **Unproven until the [baseline](#baseline-first--before-the-coding-pass) is measured** |
+| **Efficiency** | Kernel and composers ship in [`app-template/`](../app-template/) so Pi writes a model and bindings, not an architecture. [Measured](#baseline-first--before-the-coding-pass): graph-seed median €0.053 / harness green vs plain-seed median €0.060 / three timeouts | A large kernel that Pi reads end-to-end; long prompts that dump paper theory |
 | **Hidden idea** | Reusable APIs use only generic types (`EntityType`, `LinkType`, `JourneyKind`) | Book/lending words in kernel, composers, or skills |
 | **Audit** | [`src/run-challenge.ts`](../src/run-challenge.ts) still writes both `result.json` files; the model never writes telemetry | Changing `result.json` ownership, skipping harness checks, or [padding the app’s test run with seed tests](#tests) so `numTotalTests > 0` no longer proves Pi wrote one |
 
@@ -221,9 +221,7 @@ The rule above is correct and strict — strict enough that most single-user MVP
 
 v1 keeps `EdgeRecord` and the two edge ops. The delete cascade is the one genuine demonstration of revertible effects, and it is cheap. `count-links` is dropped from `DerivedKind` because a count over an empty edge set is not a derived value any product will ask for.
 
-**Decision rule:** if all three [eval ideas](#later-eval-and-follow-ups) produce `links: []`, cut edges from v1 entirely and describe the result honestly — a model-driven record store, not a graph. The framing is worth less than the lines.
-
-**The rule cannot fire as written.** Only book has ever produced a model — three runs, `links: []` each time. Pantry and timer truncated before writing one, so two of the three data points do not exist and will not exist without a contract change that gets this model writing earlier. Re-state the rule over the models that exist, or hold it until a run finishes on a second idea; do not read the missing data as agreement.
+**Decision (fired, 30 August 2026).** All four GLM ideas produced `links: []` — committed book-lending, pantry, timer (empty seed, hatch taken), and the normalized book restatement. There is still no composer and no binder path for a link, so empty is not evidence the model declined a graph; it is evidence there was nowhere to put one. Do not pitch a product-layer graph. This is a model-driven record store. The graph claim lives in memory (`GraphStore`) and in the harness (`buildPiArguments` / `protected-paths`), where [`core-concept.md`](personal/core-concept.md) already puts it. Kernel edge types stay; do not build a binder path for links. The [paper mapping](#paper-mapping) is rewritten to match.
 
 ### Revertible effects: one undo, not a history
 
@@ -416,13 +414,15 @@ This repo has two layers and the paper lands differently on each, so they are ma
 
 ### The generated app
 
+The product layer is a **model-driven record store**. Four GLM ideas, including the committed placeholder, all produced `links: []`. Do not describe the generated app as a graph product. What it earns is a JSON model, a typed in-memory store, and composers that mount from `journeys[]`.
+
 | Paper | The generated app | Not the app |
 | --- | --- | --- |
-| **Declarative configuration** (the §4.2 loader) | `product-model.json` is the target state; `App.tsx` reads it and mounts the components it names | A reconciliation *loop*. Resolution runs once at mount; nothing diffs, patches, or injects later |
+| **Declarative configuration** (the §4.2 loader) | `product-model.json` is the target state; `App.tsx` reads it and mounts the record composers it names | A reconciliation *loop*. Resolution runs once at mount; nothing diffs, patches, or injects later. Edges as a product feature |
 | **Temporal composability** (revertible effects) | `apply` returns an inverse and `Collection` calls it, for [one undo on delete](#revertible-effects-one-undo-not-a-history) | Reverting on unmount — a composer teardown that undid its writes would delete the user’s records. Undo history; process restart as the cleanup story |
-| **Withdrawal / Preservation** | The [escape hatch](#escape-hatch): the kernel can be abandoned whole and the app still typechecks, builds, and runs | Runtime withdrawal. This holds at the file level across a build, not while the app is running |
-| **Spatial composability** (coeffect specification) | Composers declare what they need — a `JourneyKind`, an entity, a `DerivedQuery` — and the binder mounts only the ones the model satisfies | **Reactive** coeffects. The model never changes at runtime, so resolution never re-runs; no composer depends on another, and nothing is notified when a provider appears or leaves |
-| **Unified context** | One `GraphStore` is both the effect target and the read source for everything persistent | Isolation and interception. `getState()` is open to any caller, no composer’s reads are checked against a declaration, and ephemeral filter state deliberately lives outside the store. Interception does exist one layer up — see [The harness](#the-harness) |
+| **Withdrawal / Preservation** | The [escape hatch](#escape-hatch): the kernel can be abandoned whole and the app still typechecks, builds, and runs. Measured on GLM timer: purpose-built `App.tsx`, empty seed model, harness green | Runtime withdrawal. This holds at the file level across a build, not while the app is running |
+| **Spatial composability** (coeffect specification) | Composers declare a `JourneyKind`, an entity, a `DerivedQuery`; the binder mounts only the ones the model satisfies. That is a static record-composer lookup, not a demonstrated link/edge graph | **Reactive** coeffects. A product-layer graph. The model never changes at runtime, so resolution never re-runs; no composer depends on another |
+| **Unified context** | One store is both the effect target and the read source for everything persistent | Isolation and interception. `getState()` is open to any caller, no composer’s reads are checked against a declaration, and ephemeral filter state deliberately lives outside the store. Interception does exist one layer up — see [The harness](#the-harness) |
 | **Cordis / HMR / fibers** | Out of scope | Meta-framework, hot reload of product components, the calculus and its proofs |
 
 One clarification worth keeping, because the obvious reading is wrong: `useSyncExternalStore` re-rendering a composer when the store changes is ordinary shared-state subscription, not reactive coeffects. There are no providers and requesters, and `useNodes(type)` is a query, not a dependency that might go unsatisfied. The coeffect-shaped part of this design is the binder’s conditional mount, and it is static.
@@ -442,7 +442,7 @@ So both layers are one-shot loaders today. The app binder reads a model and moun
 
 v1 leaves it that way deliberately, and the reason is the ranked metric rather than the contract. The contract is permissive: [`README`](../README.md) names replacing the runner strategy as a participant surface and lists a different Pi integration through its SDK or RPC mode as an intended improvement, and [`contract-public/README.md`](../contract-public/README.md) allows a replacement runner provided the audit fields and their semantics survive. What is actually fixed is `result.json` ownership, those fields, and the artifact stream. [Out of scope](#out-of-scope) declines the rest as a v1 choice, not because `src/` is untouchable.
 
-The cost is what makes that choice defensible. Ranking is Pi’s reported runtime cost, and the one measured saving is a stable prefix cached almost entirely by GLM-5.2. Composition splits along that line: a `tool_call` hook is prefix-neutral and close to free, while dynamically loaded skills and prompt templates are exactly what varies the prefix. The paper’s two halves are therefore not equally affordable here — which is a testable claim, not a settled one. [Later eval](#later-eval-and-follow-ups) says what to check before building on it.
+The cost is what makes that choice defensible. Ranking is Pi’s reported runtime cost. GLM-5.2 caches a ~2.4k-token warm prefix (call-1 `cache_read` on later runs in the same sitting). `--skill` lands in that prefix; files Pi then reads, including `SKILL.md` again, land in the conversation and dominate later `cache_read_tokens`. Graph-seed runs cache 135k–271k because they read kernel and composer files; plain-seed runs cache 14k–88k and spend the clock writing an architecture. A `tool_call` hook is prefix-neutral; a new dynamically loaded skill is cheap to *install* (same 2.4k band) and expensive if the model re-reads it. Do not add one without a same-idea cost comparison.
 
 Do not paste these tables into the Pi prompt. The kernel *is* the mapping.
 
@@ -466,10 +466,10 @@ The runner appends three texts today ([`buildPiArguments`](../src/run-challenge.
 
 The current skill’s steps 4–5 and 7 carry the guidance that maps onto the ~100-point Application Readiness axis: persistence and domain boundaries, accessible controls, validation, empty states, errors, responsive layout, duplicate actions, boundary values, malformed stored data, focused components, and testing every observable behavior. Readiness is scored separately from efficiency. Trading that content for graph instructions buys tokens with points and is a likely net loss. Condense those steps; keep them.
 
-The merged skill:
+The merged skill (Qwen early-write / write-now / skeleton-stub sentences removed after a GLM A/B on the committed idea; `fireEvent` and the `report.partial.json` checkpoint stay):
 
-1. Decide record-keeping vs escape hatch. Record the decision in `assumptions`. The next tool call that touches `src/` is a write. Write as soon as the model or stub can be stated; do not confirm it against composer or kernel source first. Keep that decision message short. This applies to every write, not just the first: whenever you can state what a file should contain, write it in that same message. Checkpoint `report.partial.json` immediately after the first source write.
-2. If record-keeping: write a complete `src/product-model.json` immediately; apply the links-vs-attributes rule. Include a domain-neutral JSON sketch (entity `item`, optional text, `count-nodes-where`, `links: []`). If hatch: write a compiling `App.tsx` skeleton first (real controls wired to state; behaviour may be TODO), then fill.
+1. Decide record-keeping vs escape hatch. Record the decision in `assumptions`. Checkpoint `report.partial.json` immediately after the first source write.
+2. If record-keeping: write `src/product-model.json` only; apply the links-vs-attributes rule. Include a domain-neutral JSON sketch (entity `item`, optional text, `count-nodes-where`, `links: []`). If hatch: replace `App.tsx` with a purpose-built UI; do not invent entities.
 3. After that write: the shipped binder is finished. Do not edit `App.tsx` unless a named journey is missing. Read `types.ts`, `product-model.json`, and `App.tsx` only. One sentence on FilterBar labels (`{label} present`, `{label}: {choice}`).
 4. *(retained)* Accessible controls, validation, empty states, errors, responsive layout. Handle duplicate or repeated actions, boundary values, malformed stored data, and recoverable storage failures where relevant.
 5. *(retained)* Keep components focused, separate concerns, avoid duplication. Use only lockfile dependencies.
@@ -540,24 +540,40 @@ Filter: books whose `borrower` is present. Lend = set `borrower`; return = clear
 
 ### Baseline first — before the coding pass
 
-The entire efficiency argument is a comparison, and there is currently nothing to compare against. Record the **before** number on the unmodified seed or no later result can confirm or refute the design:
+Measured 30 August 2026 on GLM-5.2. Plain seed is `eefb367` (13-line `App.tsx`, no `graph/`) with the current `setup.ts` isolation ported in. Same idea as the graph arm: [`contract-public/development-idea.txt`](../contract-public/development-idea.txt).
 
-- 3 × `npm run challenge` on [`contract-public/development-idea.txt`](../contract-public/development-idea.txt) against the current 13-line `App.tsx` seed.
-- Capture `cost_total`, `total_tokens`, `model_calls`, `status`, and the three `harness_checks` from each `result.json`. Use the median.
+| Arm | n | median `cost_total` | median `tests_run` | harness | wall |
+| --- | --- | --- | --- | --- | --- |
+| Graph seed | 3 | **€0.0535** (0.0450 / 0.0535 / 0.0559) | **8** (7 / 10 / 8) | 3/3 green | 7.4 / 7.8 / 11.1 min |
+| Plain seed | 3 | €0.0600 (0.0570 / 0.0600 / 0.0645) | 0 | 3/3 timed out at 15 min, no report | 15.0 min |
 
-**Abort condition:** if median `cost_total` after the coding pass is higher than baseline *and* `harness_checks` plus journey coverage are not better, revert to the plain seed. The kernel is a bet on cost, not a goal in itself.
+Plain-seed GLM writes a custom architecture (`repository.ts`, `domain.ts`, five components) and dies on the clock before tests. Graph-seed GLM writes a model and one test file.
 
-On prompt cache: the appended system prompt is a stable cacheable prefix, but files Pi reads land in the conversation, not the prefix. They are fresh input on first read and cached on later turns, so the marginal cost of a bigger seed is roughly one read per file — plausible, unmeasured, and exactly what the baseline settles.
+**Abort condition did not fire.** Graph median `cost_total` is lower *and* checks plus journey coverage are better. Keep the graph seed.
+
+On prompt cache: the appended system prompt plus `--skill` is a ~2.4k-token warm prefix (call-1 `cache_read` on later runs). Files Pi reads land in the conversation. That is why graph-seed `cache_read_tokens` is 135k–271k and plain-seed is 14k–88k — seed files, not a more expensive prefix.
 
 ### After the coding pass
 
-Measured on Qwen (`Qwen/Qwen3.8-27B-FP8`, thinking off). Numbers live in gitignored `docs/personal/eval/`; this section is only so a later pass does not treat the list below as unrun.
+Numbers live in gitignored `docs/personal/eval/`. Anything that informs a decision is GLM-5.2; Qwen figures below are historical.
 
-1. **Book.** Finished on the local [`docs/personal/eval/book-lending.txt`](../docs/personal/eval/book-lending.txt) on Qwen (book-3) and on the ranked model (GLM-5.2, 27 Aug: `status: success`, harness green, 8/8 journeys, kernel and `App.tsx` untouched, €0.052, 274k `cache_read_tokens`). That file is a normalized restatement of the committed placeholder. [`contract-public/development-idea.txt`](../contract-public/development-idea.txt) itself has not been run.
-2. **Pantry.** Four Qwen attempts before the early-write rule dumped at 16,384 tokens with an empty seed. pantry-3 (after that rule) wrote a complete `Home Pantry` model on call 5, then hit the 15-minute clock before tests or `report.partial.json`. `loadProductModel` accepts it. Kernel and composers unchanged.
-3. **Timer.** Pre-rule dumps, then writes. timer-5 (standing write-now + skeleton stub) was `truncated: false`: skeleton `App.tsx` and checkpoint on call 5, fill + tests on call 6, then 124 in a `userEvent` + fake-timers repair tail. Local A/B on that tree: `fireEvent` + `vi.advanceTimersByTime` is 8/8 in 383 ms; `userEvent` + fake timers times out 8/8 even with `advanceTimers` wired. timer-6 (scoped `fireEvent` sentence in the skill and AGENTS) never reached a write: 535 calls, 534 malformed tool args, exit 124, empty seed, no report. The [escape hatch](#escape-hatch) was intended in thinking and not taken. Unused-kernel typecheck still has no *harness-finished* timer app behind it.
+**GLM-5.2, 30 August 2026** (`truncated: false`, last `stop_reason: stop`, kernel `diff` empty, one product test file each):
 
-Success is still `status: success`, both `result.json` destinations, harness checks green, `tests_run` naming user journeys, `cost_total` at or below a baseline we do not have. Kernel changes from (2) or (3) must stay domain-neutral. Qwen’s last timer wall is a tool-call schema collapse, not the 16k cap and not the `userEvent` hang — that hang is proven locally and unmeasured in-run. A seed baseline remains open. GLM-5.2 prefix cache is real on this provider (priced 0 in local `models.json`).
+| Idea | status | min | cost | in / out / cache_read | calls | tests | links |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| committed `development-idea.txt` (A1) | success | 7.4 | 0.0535 | 17882 / 6469 / 271104 | 21 | 10 | `[]` |
+| pantry | success | 3.7 | 0.0352 | 12216 / 4112 / 138944 | 13 | 6 | `[]` |
+| timer (hatch) | success | 5.4 | 0.0316 | 7169 / 4910 / 109888 | 14 | 5 | `[]` (empty seed) |
+| book-lending n=2 | success | 8.5 | 0.0534 | 15159 / 7303 / 188736 | 17 | 8 | `[]` |
+| book-glm (27 Aug) | success | 6.8 | 0.0519 | 15919 / 6730 / 274176 | 22 | 8 | `[]` |
+
+A1 resolved borrower as optional text without the restatement’s “do not invent a person record” line. The hatch replaced `App.tsx` with a purpose-built countdown, left the seed model empty, and drove tests with `fireEvent` + `vi.advanceTimersByTime`.
+
+**Track C (same A1 idea, three Qwen mitigations removed).** Two attempts died on Berget `503 Provider temporarily unavailable` before a write (€0.014 / €0.006, not contract evidence). The third: `status: success`, €0.0427, 9 journeys, harness green, `links: []`, kernel untouched. Indistinguishable from the current-contract median. Early-write, standing write-now, and the skeleton-stub instruction are deleted. `fireEvent` and `setup.ts` isolation stay.
+
+**Qwen, historical.** Book-3 succeeded after the setup isolation fix. Pantry and timer dumped at 16,384 or died in a `userEvent` + fake-timers tail / tool-schema collapse. Those failures are not a reason to change the ranked-model contract.
+
+Success is `status: success`, both `result.json` destinations, harness checks green, `tests_run` naming user journeys, `cost_total` at or below the [baseline](#baseline-first--before-the-coding-pass). Kernel changes from pantry or timer must stay domain-neutral. GLM-5.2 prefix cache is real on this provider (priced 0 in local `models.json`).
 
 Also audit each finished run, since neither is enforced:
 
@@ -570,7 +586,7 @@ Qwen usage records carry `reasoning: 0` while the assistant content is mostly re
 
 ### Before any v2 that composes Pi components
 
-Two claims in [The harness](#the-harness) were hypotheses. Root `node_modules/` is installed now, so the first one is settled and the second is not.
+Two claims in [The harness](#the-harness) were hypotheses. Root `node_modules/` is installed now, and the 30 August GLM sitting settled the second.
 
 **Settled: the extension surface is not small.** `ExtensionAPI` in `node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts` (0.84.1) declares **33** `on(event, handler)` overloads, not the two `protected-paths.ts` uses. Beyond the lifecycle hooks it exposes `registerTool`, `registerCommand`, `registerFlag`, `registerShortcut`, `registerProvider`, `sendMessage` / `sendUserMessage`, `appendEntry`, and — relevant to any compound design — `setActiveTools`, `setModel`, and `setThinkingLevel`, all callable while a session is running. The hooks worth naming here:
 
@@ -583,7 +599,7 @@ Two claims in [The harness](#the-harness) were hypotheses. Root `node_modules/` 
 
 Implementation detail so a later pass does not rediscover it: `typebox@1.3.7` is a **nested** dependency of `pi-coding-agent` and is not resolvable from the repository root, and Pi does not re-export `Type`. Registering a tool therefore requires adding `typebox` at that exact version to the root `package.json`.
 
-**Still open: where a dynamically loaded skill lands** — the cacheable system prefix, or the conversation like a file Pi reads. The whole affordability argument for dynamic skills turns on that, and the [baseline](#baseline-first--before-the-coding-pass) measures prefix stability anyway, so the marginal cost of answering it is close to zero.
+**Settled: `--skill` lands in the cacheable prefix.** Warm call-1 `cache_read` is ~2.4k on both the graph seed and the plain seed (same `--append-system-prompt` + `--skill` shape). The model also `read`s `SKILL.md` into the conversation; those tokens join later-turn cache with every other file it opens. Graph vs baseline `cache_read` deltas are seed-file reads, not a different skill-loading path.
 
 The "if the surface is small, v2 is not worth its cost" branch is therefore closed in favour of the other one: the hooks are rich, and composition at the harness layer is affordable enough to prototype. What that does **not** settle is whether it pays — a registered tool adds its definition to every request, so any such change has to be measured against a same-idea run, not argued from the surface being available.
 
@@ -592,10 +608,10 @@ The "if the surface is small, v2 is not worth its cost" branch is therefore clos
 
 Accepted knowingly, recorded so they are not rediscovered as surprises:
 
-- **Seed size vs. exploration cost.** ~900 lines of kernel and composers in a workspace Pi explores before writing. The read budget is a request, not a limit — it now has a failure mode attached. Pantry-2 opened all six composers, `load-model.ts`, `setup.ts`, both Vitest configs and the kernel internals, then spent one whole 16,384-token message reasoning and wrote nothing. Book-3 did the same wholesale read and finished. On this model, exploration and the output cap compete for the same run. Still unresolved until the baseline comparison above.
+- **Seed size vs. exploration cost.** ~900 lines of kernel and composers in a workspace Pi explores before writing. On Qwen, exploration and the 16,384 cap competed for the same run. On GLM the extra files are absorbed by prefix/conversation cache: graph-seed finishes cheaper and greener than a 13-line seed that spends fifteen minutes writing an architecture. Settled by the [baseline](#baseline-first--before-the-coding-pass).
 - **Kernel boundary is prompt-enforced.** `protected-paths.ts` cannot distinguish a legitimate escape-hatch rewrite from Pi wandering into `store.ts`. Measured by the diff audit, not prevented.
 - **Journey honesty is partly self-reported.** The test exclusion restores the *existence* check — the app’s Vitest run contains only Pi’s tests. It does not verify that a `tests_run` journey string describes what the test actually asserts.
-- **The graph framing may collapse.** If links stay empty across all three eval ideas, this is a model-driven record store. Every model produced so far — book-1, book-2, book-3 — has `links: []`, and the other two ideas never produced one, so the evidence points that way without being complete; see [Links may be dead weight](#links-may-be-dead-weight). That is still a good product; the paper mapping is what would need rewriting, not the code.
+- **The graph framing collapsed at the product layer.** All four GLM ideas produced `links: []`. This is a model-driven record store. See [Links may be dead weight](#links-may-be-dead-weight) and the rewritten [paper mapping](#paper-mapping). The kernel is unchanged.
 - **The paper’s dynamic system in this repo is the harness, not the app.** Its research-context section names two motivating cases: plugin systems, and *self-evolving agent harnesses*. This repo is the second, and v1 applies the paper’s ideas to the app it generates instead. The choice is deliberate — see [The harness](#the-harness) for what that layer does and does not earn, and why the cost argument favours leaving it alone — but the framing is aimed at the layer with less to demonstrate, and calling this document a harness design overstates which half it is about. Accepted for v1; [revisit](#before-any-v2-that-composes-pi-components) only if the hook surface turns out to be worth it.
 
 ## Out of scope

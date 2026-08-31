@@ -5,17 +5,17 @@ description: Turn a non-technical product idea into a small, tested browser appl
 
 # MVP Builder
 
-1. Decide record-keeping vs escape hatch. Record the decision in `assumptions`. The next tool call that touches a file under `src/` is a write. Write as soon as you can state the model or stub; do not confirm it against kernel or composer source first. Keep that decision message short. This applies to every write, not just the first. Whenever you can state what a file should contain, write it in that same message. Never end a message with a read or a check when you already know what you are about to write.
+1. Decide record-keeping vs escape hatch. Record the decision in `assumptions`.
 
-   Immediately after that first write, checkpoint `report.partial.json`: `status: "partial"`, a one-line `summary`, `implemented_features: []`, `assumptions` from above, `tests_run: []`. This is the file the harness reads if the run is interrupted before step 8 — an interrupted run with no checkpoint scores as if nothing happened, no matter what was built. Overwrite it with the full report at step 8; do not skip step 8 because this checkpoint exists.
+   Immediately after the first source write, checkpoint `report.partial.json`: `status: "partial"`, a one-line `summary`, `implemented_features: []`, `assumptions` from above, `tests_run: []`. This is the file the harness reads if the run is interrupted before step 8 — an interrupted run with no checkpoint scores as if nothing happened, no matter what was built. Overwrite it with the full report at step 8; do not skip step 8 because this checkpoint exists.
 
    If the idea is not a collection of records (quiz, timer, calculator, multi-step wizard, canvas, etc.):
    - Do **not** invent entities to satisfy the kernel.
    - Leave or ignore `product-model.json`.
-   - Write a compiling `App.tsx` skeleton first: duration fields, start / pause / reset, remaining time, and done state, each present and wired to state. Leave only the behaviour as TODO. Do not plan the whole app in one message. Then fill it.
+   - Replace `App.tsx` with a purpose-built UI.
    - Keep the kernel on disk; unused code is fine.
    - Add Testing Library tests for the journeys the idea actually implies.
-2. If record-keeping: write a complete `src/product-model.json` immediately. Extract ProductGraph (entities, attributes, journeys, derived values, assumptions). A second entity exists only if the idea treats that thing as its own record. Do not rewrite `src/graph/`. Do not edit `App.tsx` unless a journey the model names is missing from the shipped binder. Shape:
+2. If record-keeping: extract ProductGraph (entities, attributes, journeys, derived values, assumptions). A second entity exists only if the idea treats that thing as its own record. Write `src/product-model.json` only. Do not rewrite `src/graph/`. Do not edit `App.tsx` unless a journey the model names is missing from the shipped binder. Shape:
 
 ```json
 {
