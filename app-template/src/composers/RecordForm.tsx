@@ -84,9 +84,24 @@ export function RecordForm({
 
   function onSubmit(event: FormEvent) {
     event.preventDefault();
+    const trimmed: Record<string, string> = {};
+    const invalid: Record<string, string> = {};
+    for (const attr of entity.attributes) {
+      const value = (values[attr.id] ?? "").trim();
+      trimmed[attr.id] = value;
+      if (attr.required && value === "") {
+        invalid[attr.id] = `${attr.label} is required.`;
+      } else if (attr.kind === "number" && value !== "" && Number.isNaN(Number(value))) {
+        invalid[attr.id] = `${attr.label} must be a number.`;
+      }
+    }
+    if (Object.keys(invalid).length > 0) {
+      setErrors(invalid);
+      return;
+    }
     const result = store.apply({
       kind: "upsert-node",
-      node: { id: editing?.id ?? "", type: entity.id, attributes: values },
+      node: { id: editing?.id ?? "", type: entity.id, attributes: trimmed },
     });
     if (!result.ok) {
       const attr = entity.attributes.find((item) => item.id === result.attribute);
@@ -99,7 +114,7 @@ export function RecordForm({
   }
 
   return (
-    <form onSubmit={onSubmit}>
+    <form onSubmit={onSubmit} noValidate>
       <h2>{editing ? `Edit ${entity.singular}` : `Add ${entity.singular}`}</h2>
       {entity.attributes.map((attr) => (
         <Field

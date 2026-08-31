@@ -8,6 +8,6 @@ export default defineConfig({
     environment: "jsdom",
     passWithNoTests: false,
     setupFiles: ["./src/test/setup.ts"],
-    exclude: [...configDefaults.exclude, "**/*.kernel.test.ts"],
+    exclude: [...configDefaults.exclude, "**/*.kernel.test.ts", "**/*.kernel.test.tsx"],
   },
 });

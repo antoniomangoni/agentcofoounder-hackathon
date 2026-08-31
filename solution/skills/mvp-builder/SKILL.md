@@ -53,7 +53,28 @@ FilterBar options (do not open composer source): optional text → `{label} pres
 3. After that write, read only `src/graph/types.ts`, `src/product-model.json`, and `src/App.tsx`. Do not invent a parallel architecture. Do not open `store.ts`, `persist.ts`, `GraphProvider.tsx`, or composer modules unless a kernel test fails.
 4. Implement accessible controls, validation, empty states, errors, and responsive layout. Handle duplicate or repeated actions, boundary values, malformed stored data, and recoverable storage or runtime failures where relevant.
 5. Keep components focused, separate concerns, and avoid duplication so another developer or agent can extend the app without a rewrite. Use only the dependencies already installed from the committed lockfile. Do not add packages or run dependency-install commands.
-6. Add one Testing Library file covering every implied journey and any observable behavior the model does not capture. For `persist`, remount `<App />` and assert the data survived. Do not read `localStorage` keys or open `persist.ts`. For countdowns or intervals, drive tests with `fireEvent` and `vi.advanceTimersByTime`. Do not pair `userEvent` with fake timers — the click hangs until the test times out. Use each `journey` string later in `tests_run`.
+6. Add one Testing Library file covering every implied journey and any observable behavior the model does not capture. Use each `journey` string later in `tests_run`.
+
+   For record-keeping, import the shipped helpers from `./test/journeys.js` instead of writing your own. Do not open that file; this is its whole API. Arguments are the `label` values from your model, never attribute ids:
+
+   ```ts
+   import { renderApp, addRecord, editRecord, removeRecord, undoRemove,
+            rowFor, derivedValue, filterBy, expectSurvivesRefresh } from "./test/journeys.js";
+
+   renderApp();                                          // render; call first in every test
+   await addRecord({ Title: "Dune", Author: "Herbert" }); // fills labelled fields, submits
+   await editRecord("Dune", { Title: "Dune (1965)" });
+   await removeRecord("Dune");  await undoRemove();
+   rowFor("Dune");                                        // the <tr> containing that text
+   derivedValue("Lent out");                              // the derived value, as a string
+   await filterBy({ attribute: "borrower", present: true });   // or { attribute: "kind", equals: "Novel" }
+   await filterBy(null);                                       // clear the filter
+   await expectSurvivesRefresh(() => { expect(rowFor("Dune")).toBeTruthy(); });
+   ```
+
+   `filterBy` takes the same shape your model declares — never build the `<option>` string by hand. Pass a second argument (the entity `singular`, or `plural` for `filterBy`) only when the model has more than one entity.
+
+   For countdowns or intervals, drive tests with `fireEvent` and `vi.advanceTimersByTime`. Do not pair `userEvent` with fake timers — the click hangs until the test times out.
 7. Run `npm test` and `npm run build` only. Do not run `npm run dev`. Repair failures. Every committed test must run and pass; do not leave skipped or todo tests. Startup and assumptions reporting are runner obligations, not UI test journeys.
 8. Overwrite the `report.partial.json` checkpoint from step 1 with this exact shape:
 

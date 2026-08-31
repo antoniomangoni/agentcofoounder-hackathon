@@ -24,7 +24,7 @@ Constraints that stay fixed in v1:
 
 - One Pi call. The runner still owns both `result.json` files. It records `stop_reason` / `truncated` from Pi’s event stream and skips app verification when the **final** assistant message was truncated. It does not change `composeResult` status rules. The appended system prompt remains a cacheable GLM-5.2 prefix.
 - `CHALLENGE_THINKING` stays `off` unless a later measurement shows reasoning pays for itself.
-- No new npm packages. No backend or external API; see [`storage.md`](storage.md).
+- One seed dependency, [`@picocss/pico`](#composers) (classless CSS, pinned `2.1.1`), and no others without the same justification. No backend or external API; see [`storage.md`](storage.md).
 - Node 22.19.x, Pi `@earendil-works/pi-coding-agent@0.84.1`.
 
 ## Architecture
@@ -348,15 +348,19 @@ Book-3 `read` tool, product source:
 | `main.tsx` | 13 | yes |
 | `graph/*.kernel.test.ts` | 206 | no |
 
-After derived reference checks, `graph/` is 321 lines and the opened seed is 734.
+After derived reference checks, `graph/` is 321 lines and the opened seed is **757**.
+
+**The ceiling was re-derived on GLM, 31 August 2026, and raised from 734 to 780.** The old number came from Qwen, where wholesale seed reads competed with the 16,384-token output cap inside one run — pantry-2 read every composer and the kernel, spent a whole 16k message reasoning, and wrote nothing. That pressure does not exist on the ranked model. The [baseline](#baseline-first--before-the-coding-pass) settled it: GLM absorbs the seed reads through prefix and conversation cache, and the graph seed finishes 35% cheaper than a 13-line seed *and* is the only arm that completes at all. The budget is still real — every line is read on some run — but it is now sized against GLM's demonstrated behaviour rather than Qwen's failure mode.
 
 | Budget | Limit |
 | --- | --- |
-| Opened seed (`graph/` + `composers/` + `App.tsx` + `setup.ts` + `main.tsx`) | ≤ 734 lines |
-| Each composer | ≤ 120 lines |
+| Opened seed (`graph/` + `composers/` + `App.tsx` + `setup.ts` + `main.tsx`) | ≤ 780 lines (**757** today) |
+| Each composer | ≤ 135 lines (`RecordForm` is 132 with validation) |
+| Documented, not read: [`test/journeys.tsx`](../app-template/src/test/journeys.tsx) | 106 lines, its API restated in `SKILL.md` step 6 so Pi uses it without opening it |
+| Off-budget: `styles.css`, Pico | Not read by Pi and not part of the opened surface |
 | Skill instructions for file reads | Read `types.ts`, `product-model.json`, `App.tsx`, and composer **prop types** only. Do not open `store.ts` / `persist.ts` / `GraphProvider.tsx` unless a kernel test fails. Book-3 ignored this. |
 
-If the opened seed grows past 734, delete features; do not add a query language. This is not a second waiver of the old 302 rule — that target is retired.
+If the opened seed grows past 780, delete features; do not add a query language. The per-composer limit moved 120 → 135 once, for the [validation](#composers) that a GLM run wrote into `RecordForm` itself and that was then lost. Neither number gets waived a second time without a fresh measurement.
 
 [`app-template/src/test/setup.ts`](../app-template/src/test/setup.ts) must `cleanup()` and `localStorage.clear()` in `afterEach`. Testing Library 16.3.0 registers auto-cleanup only when `afterEach` is a global; this seed does not set `globals: true`. Without the explicit cleanup, every `render(<App />)` stacks another app and inherits persisted records — that is what killed book-2.
 
@@ -399,6 +403,10 @@ Generic React pieces. Labels, headings, button names, and `aria-*` come from the
 | `Collection` | List, row actions, undo-on-delete status region | Whenever `entities.length > 0` |
 | `FilterBar` | Narrow by choice attribute, boolean, or “attribute present” | `filter` |
 | `DerivedStat` | `DerivedQuery.label` + value | `derive` |
+
+`RecordForm` validates before it applies: per-attribute `required` and `kind === "number"` checks, values trimmed, errors keyed off `attr.label` and rendered in `.field-error` with `aria-describedby`. The form carries `noValidate` so those messages appear instead of the browser's native tooltip, which is what makes them assertable. This is not new design — a GLM run wrote exactly this into `RecordForm` itself, it was domain-free and correct, and it was gone two runs later; three runs then told three different stories about the same missing primitive. It lives behind the composer, so it costs no prompt text and no read surface.
+
+Product tests import [`test/journeys.tsx`](../app-template/src/test/journeys.tsx) — `renderApp`, `addRecord`, `editRecord`, `removeRecord`, `undoRemove`, `rowFor`, `derivedValue`, `filterBy`, `expectSurvivesRefresh`. Every argument is a `label` from the model, so the module carries no domain vocabulary. `filterBy` takes the declared filter shape and encodes it through `filterToken` in [`composers/filter.ts`](../app-template/src/composers/filter.ts), which `FilterBar` also uses for its `<option>` values — one spelling, two callers. That closes a real defect: across five GLM runs the model guessed our own encoding two incompatible ways (`"borrower|present"` against the visible label `"Borrower present"`), and re-authored the row finder four mutually incompatible times. The API is restated in `SKILL.md` step 6 so Pi uses it from the cacheable prefix without opening the file.
 
 `Collection` is not gated on a journey kind. `edit`, `filter`, and `derive` all need something to read; a form with no list is not a product. Gate the row *actions* on `edit` / `delete` instead. The [undo affordance](#revertible-effects-one-undo-not-a-history) belongs to the `delete` action, not to a separate composer, and has to fit inside `Collection`’s 120-line budget.
 
@@ -619,7 +627,7 @@ Accepted knowingly, recorded so they are not rediscovered as surprises:
 ## Out of scope
 
 - Porting Cordis, HMR, fibers, or the paper’s calculus
-- New npm dependencies, LangChain, AutoGen, RDF libraries
+- Further npm dependencies, LangChain, AutoGen, RDF libraries. The one exception taken is `@picocss/pico`, and the test it had to pass is worth keeping as the rule: **a dependency is affordable only when its model-facing API is zero.** Pico is imported once in `main.tsx` and styles plain semantic HTML, so Pi writes `form`/`table`/`button` and gets a styled app in both colour schemes without knowing the package exists. That is the opposite of the usual case — the model already misuses the seed's *own* filter encoding two incompatible ways across five runs, so anything it would have to learn makes that worse. `zod` was rejected on the same test: ~60KB of API to replace 15 lines of validation Pi had already written correctly itself. Libraries win where the API is zero; primitives win where the API is inherently ours (no package knows our composers' DOM, which is why `journeys.tsx` is seed-owned)
 - A backend or external API
 - Graph visualization as the product UI
 - Changing anything under [`src/`](../src/) in v1 except the usage-collector carve-out (`stop_reason`, `truncated`, and `canVerifyApp` false when the final assistant message was truncated). `prepare-output.ts` and the verification commands stay as they are. `harness_checks[].result` still cannot express “not run” (`contract-public` is frozen); skipped checks are written `failed` and the `journey` string says they were not run.

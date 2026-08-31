@@ -27,6 +27,8 @@ The options are scored against requirements that already exist in the repo, not 
 
 C3, C4 and C5 are the hard ones: each is enforced by code that runs, not by an instruction a model might ignore.
 
+> **Note, 31 August 2026.** The seed now carries one dependency, `@picocss/pico` (classless CSS, pinned `2.1.1`). That does not reopen C3, and nothing in this document changes. C3 constrains **the model**: `AGENTS.md` and `system-prompt.md` still tell Pi not to add packages, and `npm ci` against a committed lockfile still enforces it mechanically. What changed is the lockfile itself — precisely the "change to the seed, not to the generated app" that the Tier 2 section below already distinguishes. The storage libraries stay rejected because they fail C2 (no IndexedDB under jsdom), C4 (offline, no credential path) or C5 (one process) *independently* of the package question, and a stylesheet imported once in `main.tsx` inherits none of those. See [`implementation.md` § Out of scope](implementation.md#out-of-scope) for the test a dependency has to pass: its model-facing API must be zero.
+
 ## Tier 1 — zero new dependencies
 
 Browser built-ins. The only tier where anything is actually available.
