@@ -50,7 +50,7 @@ description: Turn a non-technical product idea into a small, tested browser appl
 ```
 
 FilterBar options (do not open composer source): optional text → `{label} present`; boolean → the attribute label; choice → `{label}: {choice}`. That is how “has a note” / “currently out” is expressed.
-3. After that write, read only `src/graph/types.ts`, `src/product-model.json`, and `src/App.tsx`. Do not invent a parallel architecture. Do not open `store.ts`, `persist.ts`, `GraphProvider.tsx`, or composer modules unless a kernel test fails.
+3. After that write, read only `src/graph/types.ts`, `src/product-model.json`, and `src/App.tsx`. Do not invent a parallel architecture. Do not open `store.ts`, `persist.ts`, `GraphProvider.tsx`, or composer modules.
 4. Implement accessible controls, validation, empty states, errors, and responsive layout. Handle duplicate or repeated actions, boundary values, malformed stored data, and recoverable storage or runtime failures where relevant.
 5. Keep components focused, separate concerns, and avoid duplication so another developer or agent can extend the app without a rewrite. Use only the dependencies already installed from the committed lockfile. Do not add packages or run dependency-install commands.
 6. Add one Testing Library file covering every implied journey and any observable behavior the model does not capture. Write it at `src/<name>.test.tsx`, not inside `src/test/`. Use each `journey` string later in `tests_run`, where every entry is exactly `{ "command": "npm test", "journey": "...", "result": "passed" }` — the field is `result`, never `status`, and `command` is required. An entry missing either is discarded, and a report whose entries are all discarded scores as if no journey ran.

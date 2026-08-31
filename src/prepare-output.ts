@@ -54,7 +54,12 @@ export async function prepareOutput(
   await mkdir(outputDirectory, { recursive: true });
   await cp(path.join(repositoryRoot, "app-template"), outputDirectory, {
     recursive: true,
-    filter: (source) => !source.split(path.sep).includes("node_modules") && !source.endsWith(`${path.sep}dist`),
+    // Kernel tests verify the seed for us via `npm run check`; the generated app never
+    // runs them, and every line is read surface Pi pays for while exploring.
+    filter: (source) =>
+      !source.split(path.sep).includes("node_modules") &&
+      !source.endsWith(`${path.sep}dist`) &&
+      !/\.kernel\.test\.[cm]?[jt]sx?$/.test(source),
   });
   await writeFile(path.join(outputDirectory, MARKER), "managed by agent-cofounder-starter\n", "utf8");
   return outputDirectory;
