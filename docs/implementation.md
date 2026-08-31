@@ -16,7 +16,7 @@ Official judging uses a **hidden idea** and private browser journeys. The commit
 | Axis | How this design helps | How it can fail |
 | --- | --- | --- |
 | **Readiness** | Composers render forms, lists, filters, counts with semantic HTML and names taken from the model | Shipping a node/edge explorer, or forcing a fake graph onto a non-record product |
-| **Efficiency** | Kernel and composers ship in [`app-template/`](../app-template/) so Pi writes a model and bindings, not an architecture. [Measured](#baseline-first--before-the-coding-pass): graph-seed median €0.053 / harness green vs plain-seed median €0.060 / three timeouts | A large kernel that Pi reads end-to-end; long prompts that dump paper theory |
+| **Efficiency** | Kernel and composers ship in [`app-template/`](../app-template/) so Pi writes a model and bindings, not an architecture. [Measured](#baseline-first--before-the-coding-pass), single-variable comparison: graph-seed median €0.0535 / harness green vs plain-seed median €0.0818 / three timeouts | A large kernel that Pi reads end-to-end; long prompts that dump paper theory |
 | **Hidden idea** | Reusable APIs use only generic types (`EntityType`, `LinkType`, `JourneyKind`) | Book/lending words in kernel, composers, or skills |
 | **Audit** | [`src/run-challenge.ts`](../src/run-challenge.ts) still writes both `result.json` files; the model never writes telemetry | Changing `result.json` ownership, skipping harness checks, or [padding the app’s test run with seed tests](#tests) so `numTotalTests > 0` no longer proves Pi wrote one |
 
@@ -540,16 +540,18 @@ Filter: books whose `borrower` is present. Lend = set `borrower`; return = clear
 
 ### Baseline first — before the coding pass
 
-Measured 30 August 2026 on GLM-5.2. Plain seed is `eefb367` (13-line `App.tsx`, no `graph/`) with the current `setup.ts` isolation ported in. Same idea as the graph arm: [`contract-public/development-idea.txt`](../contract-public/development-idea.txt).
+Measured 31 August 2026 on GLM-5.2, single-variable design. Plain-seed arm is `app-template/src/` at `eefb367` (13-line `App.tsx`, no `graph/`) copied into a worktree that otherwise runs the *current* `src/` runner, `contract-public/`, and `protected-paths.ts` (byte-identical already), plus the current-wording `system-prompt.md` / `SKILL.md` / `AGENTS.md` with only the kernel/composer-specific sentences swapped for the generic small-repository-boundary guidance the plain seed needs — every other current sentence (checkpoint step, `fireEvent` guidance, "don't run `npm run dev` yourself") carried over unchanged. An earlier attempt at this comparison ran the plain arm wholesale at `eefb367` — old runner (no `stop_reason`/`truncated` tracking) *and* old prompts at once — which meant the two arms weren't measuring the same fields and the plain arm's old `SKILL.md` was itself instructing the architecture it then got blamed for. That number is superseded by the one below. Same idea as the graph arm: [`contract-public/development-idea.txt`](../contract-public/development-idea.txt).
 
 | Arm | n | median `cost_total` | median `tests_run` | harness | wall |
 | --- | --- | --- | --- | --- | --- |
 | Graph seed | 3 | **€0.0535** (0.0450 / 0.0535 / 0.0559) | **8** (7 / 10 / 8) | 3/3 green | 7.4 / 7.8 / 11.1 min |
-| Plain seed | 3 | €0.0600 (0.0570 / 0.0600 / 0.0645) | 0 | 3/3 timed out at 15 min, no report | 15.0 min |
+| Plain seed | 3 | €0.0818 (0.0754 / 0.0818 / 0.0846) | 0 | 0/3 green, all three | 15.0 min (timeout) |
 
-Plain-seed GLM writes a custom architecture (`repository.ts`, `domain.ts`, five components) and dies on the clock before tests. Graph-seed GLM writes a model and one test file.
+Plain-seed GLM writes a custom architecture (`repository.ts`, `domain.ts` / persistence and domain layers, several components — its own `SKILL.md` step 3 asks for exactly this: "isolate persistence and domain operations... with a small repository or service boundary") and dies on the clock before tests, every time, 3/3. Graph-seed GLM writes a model and one test file and finishes in under 12 minutes, every time.
 
-**Abort condition did not fire.** Graph median `cost_total` is lower *and* checks plus journey coverage are better. Keep the graph seed.
+**Abort condition did not fire, decisively.** Graph median `cost_total` is 35% lower *and* it is the only arm that ever completes. Keep the graph seed.
+
+A prior attempt at this same re-run hit a live Berget outage across five consecutive tries (`500: An unexpected error occurred`, then `Request timed out` — see `docs/personal/eval/notes.md`, 31 August) before the run above finally landed clean. Worth remembering for judging day: `stop_reason: error` currently scores identically to a genuine model failure, and neither Pi's built-in retry nor this harness survives a sustained provider outage.
 
 On prompt cache: the appended system prompt plus `--skill` is a ~2.4k-token warm prefix (call-1 `cache_read` on later runs). Files Pi reads land in the conversation. That is why graph-seed `cache_read_tokens` is 135k–271k and plain-seed is 14k–88k — seed files, not a more expensive prefix.
 
