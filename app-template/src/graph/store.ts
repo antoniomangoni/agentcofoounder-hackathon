@@ -96,7 +96,12 @@ export function createStore(
         return nodes.filter((n) => {
           const value = n.attributes[query.where?.attribute ?? ""] ?? "";
           if (query.where?.equals !== undefined) return value === query.where.equals;
-          return !query.where?.present || value !== "";
+          // `present: false` asks for the complement — "left to read", "still open",
+          // "unpaid". The model writes it unprompted and the loader validates it, but it
+          // used to be dropped here, so the value read 0 forever and a run could be spent
+          // debugging a derived query that could never work.
+          const isSet = value !== "";
+          return query.where?.present === false ? !isSet : isSet;
         }).length;
       },
     },

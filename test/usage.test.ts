@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectUsageFromJsonLines, isFinalAssistantTruncated } from "../src/usage.js";
+import { billableTokensFromJsonLine, collectUsageFromJsonLines, isFinalAssistantTruncated } from "../src/usage.js";
 
 describe("collectUsageFromJsonLines", () => {
   it("aggregates completed assistant messages without counting other events", () => {
@@ -212,5 +212,30 @@ describe("collectUsageFromJsonLines", () => {
     expect(usage.truncated).toBe(true);
     expect(usage.call_log.map((call) => call.stop_reason)).toEqual(["length", "stop", "stop"]);
     expect(isFinalAssistantTruncated(usage)).toBe(false);
+  });
+});
+
+describe("billableTokensFromJsonLine", () => {
+  const assistant = (input: number, cacheRead: number) =>
+    JSON.stringify({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        model: "zai-org/GLM-5.2",
+        usage: { input, output: 10, cacheRead, cacheWrite: 0, totalTokens: input + cacheRead + 10 },
+      },
+    });
+
+  // Cache reads are billed at the full input rate on this provider, so they are the
+  // number that matters: a looping run reached 26.6M of them and produced nothing.
+  it("counts fresh input and cache reads together", () => {
+    expect(billableTokensFromJsonLine(assistant(1_000, 150_000))).toBe(151_000);
+  });
+
+  it("ignores lines that are not a billable call", () => {
+    expect(billableTokensFromJsonLine("")).toBe(0);
+    expect(billableTokensFromJsonLine("   ")).toBe(0);
+    expect(billableTokensFromJsonLine("{ not json")).toBe(0);
+    expect(billableTokensFromJsonLine(JSON.stringify({ type: "turn_start" }))).toBe(0);
   });
 });

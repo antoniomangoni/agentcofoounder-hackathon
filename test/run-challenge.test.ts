@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   PI_DOCUMENTATION_HEADING,
+  createRepeatBreaker,
   stripPiDocumentationBlock,
 } from "../solution/extensions/protected-paths.js";
 import { buildPiArguments, parseArguments, runPi, runRequiresFailureExit } from "../src/run-challenge.js";
@@ -161,4 +162,51 @@ describe("Pi launch", () => {
     expect(result.exitCode).not.toBe(124);
     expect(await readFile(stderrFile, "utf8")).toContain("Unknown provider");
   }, 10_000);
+});
+
+describe("createRepeatBreaker", () => {
+  const bash = (command: string) => ({ command });
+
+  // A successful run repeats its most-repeated command 2-7 times; a stuck one 33-126.
+  // The limit has to clear the healthy band or it breaks ordinary repair loops.
+  it("allows the repeats a healthy repair loop actually makes", () => {
+    const breaker = createRepeatBreaker(12);
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+      expect(breaker.check("bash", bash("npm test"))).toBeUndefined();
+    }
+  });
+
+  it("blocks an identical command once it reaches the limit", () => {
+    const breaker = createRepeatBreaker(3);
+    expect(breaker.check("bash", bash("ls -la"))).toBeUndefined();
+    expect(breaker.check("bash", bash("ls -la"))).toBeUndefined();
+    const blocked = breaker.check("bash", bash("ls -la"));
+    expect(blocked?.block).toBe(true);
+    expect(blocked?.reason).toContain("3 times");
+  });
+
+  it("counts each distinct command separately", () => {
+    const breaker = createRepeatBreaker(3);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      breaker.check("bash", bash("npm test"));
+      breaker.check("bash", bash("npm run build"));
+    }
+    expect(breaker.check("bash", bash("npm test"))?.block).toBe(true);
+    expect(breaker.check("bash", bash("npm run build"))?.block).toBe(true);
+  });
+
+  it("meters only bash, so reads and writes are never blocked", () => {
+    const breaker = createRepeatBreaker(2);
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      expect(breaker.check("read", { path: "src/App.tsx" })).toBeUndefined();
+      expect(breaker.check("write", { path: "src/App.tsx", content: "x" })).toBeUndefined();
+    }
+  });
+
+  it("passes through input it cannot serialise", () => {
+    const breaker = createRepeatBreaker(1);
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(breaker.check("bash", circular)).toBeUndefined();
+  });
 });

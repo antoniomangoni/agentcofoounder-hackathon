@@ -14,7 +14,7 @@ import {
   rootStartCommand,
   writeResult,
 } from "./result.js";
-import { collectUsageFromJsonLines, isFinalAssistantTruncated } from "./usage.js";
+import { billableTokensFromJsonLine, collectUsageFromJsonLines, isFinalAssistantTruncated } from "./usage.js";
 import type { RunResult } from "./types.js";
 import { validateResultObject } from "./validate-result.js";
 import { portHasListener, unavailableAppVerification, verifyGeneratedApp } from "./verify-app.js";
@@ -29,6 +29,8 @@ interface Arguments {
 export interface CommandResult {
   exitCode: number;
   timedOut: boolean;
+  /** Pi was stopped because the run's billable tokens crossed the ceiling. */
+  exceededTokenCeiling: boolean;
 }
 
 const SOURCE_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
@@ -58,6 +60,7 @@ Environment:
   CHALLENGE_MODEL         Optional Pi model override
   CHALLENGE_THINKING      Optional Pi thinking level (default: off)
   CHALLENGE_TIMEOUT_MS    Wall-clock limit for Pi (default: 900000)
+  CHALLENGE_TOKEN_CEILING Billable-token limit for Pi (default: 3000000)
 `);
 }
 
@@ -134,6 +137,7 @@ export async function runPi(
   eventFile: string,
   stderrFile: string,
   timeoutMs: number,
+  tokenCeiling: number = Number.POSITIVE_INFINITY,
 ): Promise<CommandResult> {
   const events = createWriteStream(eventFile, { flags: "wx" });
   const errors = createWriteStream(stderrFile, { flags: "wx" });
@@ -157,11 +161,16 @@ export async function runPi(
       });
       piChild = child;
       let timedOut = false;
+      let exceededTokenCeiling = false;
+      let billableTokens = 0;
       let killTimer: NodeJS.Timeout | undefined;
-      const timeout = setTimeout(() => {
-        timedOut = true;
+      const stopPi = (): void => {
         signalProcessTree(child, "SIGTERM");
         killTimer = setTimeout(() => signalProcessTree(child, "SIGKILL"), 5_000);
+      };
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        stopPi();
       }, timeoutMs);
 
       child.stdout.on("data", (chunk: Buffer) => {
@@ -169,7 +178,18 @@ export async function runPi(
         lineBuffer += chunk.toString("utf8");
         const lines = lineBuffer.split(/\r?\n/u);
         lineBuffer = lines.pop() ?? "";
-        for (const line of lines) summarizeEventLine(line);
+        for (const line of lines) {
+          summarizeEventLine(line);
+          billableTokens += billableTokensFromJsonLine(line);
+        }
+        if (!exceededTokenCeiling && !timedOut && billableTokens > tokenCeiling) {
+          exceededTokenCeiling = true;
+          console.error(
+            `[pi] billable tokens ${billableTokens} exceeded CHALLENGE_TOKEN_CEILING ${tokenCeiling}; terminating.`,
+          );
+          clearTimeout(timeout);
+          stopPi();
+        }
       });
       child.stderr.pipe(errors);
       child.stderr.pipe(process.stderr);
@@ -182,7 +202,8 @@ export async function runPi(
         clearTimeout(timeout);
         if (killTimer) clearTimeout(killTimer);
         if (lineBuffer !== "") summarizeEventLine(lineBuffer);
-        resolve({ exitCode: timedOut ? 124 : (code ?? 1), timedOut });
+        const exitCode = timedOut ? 124 : exceededTokenCeiling ? 125 : (code ?? 1);
+        resolve({ exitCode, timedOut, exceededTokenCeiling });
       });
     });
   } finally {
@@ -224,6 +245,22 @@ export function buildPiArguments(
   args.push("--thinking", process.env.CHALLENGE_THINKING ?? "off");
   args.push(`## Product idea\n\n${idea.trim()}\n`);
   return args;
+}
+
+/**
+ * Ceiling on billable tokens (fresh input plus cache reads) for one run.
+ *
+ * The largest successful run observed used 888,748; a single looping run reached
+ * 26.6M and produced nothing. Three million leaves ample headroom for a healthy
+ * run while capping a runaway at a small fraction of its unbounded cost.
+ */
+function tokenCeilingFromEnvironment(): number {
+  const raw = process.env.CHALLENGE_TOKEN_CEILING ?? "3000000";
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1_000) {
+    throw new Error("CHALLENGE_TOKEN_CEILING must be an integer of at least 1000");
+  }
+  return value;
 }
 
 function timeoutFromEnvironment(): number {
@@ -283,6 +320,7 @@ async function runChallenge(args: Arguments, idea: string): Promise<void> {
     eventFile,
     stderrFile,
     timeoutFromEnvironment(),
+    tokenCeilingFromEnvironment(),
   );
   const portReclamation = await auditAppPortAfterPi(APP_PORT, outputDirectory, appPortHadListenerBeforePi);
   if (portReclamation.listener_after_pi) {
@@ -298,7 +336,11 @@ async function runChallenge(args: Arguments, idea: string): Promise<void> {
   // checking: the harness's own vitest/build/startup evidence is independent of
   // how Pi exited, and `composeResult` still degrades the status to `partial`.
   // Truncation stays excluded - a report cut mid-write is not trustworthy.
-  const timedOutWithReport = pi.timedOut && partial.tests_run.length > 0 && !truncatedFinal;
+  // A run stopped early - out of wall clock, or stopped for runaway token spend -
+  // is treated the same way: if it left a report naming journeys, the harness's own
+  // evidence still stands and `composeResult` degrades the status to `partial`.
+  const stoppedEarly = pi.timedOut || pi.exceededTokenCeiling;
+  const timedOutWithReport = stoppedEarly && partial.tests_run.length > 0 && !truncatedFinal;
   const canVerifyApp =
     usage.model_calls > 0 && !truncatedFinal && (pi.exitCode === 0 || timedOutWithReport);
   const startCommand = rootStartCommand(REPOSITORY_ROOT, outputDirectory);
@@ -336,6 +378,9 @@ async function runChallenge(args: Arguments, idea: string): Promise<void> {
     console.error(`Required result destination was not written: ${missingResultPath}`);
   }
   if (pi.timedOut) console.error("Pi exceeded CHALLENGE_TIMEOUT_MS and was terminated.");
+  if (pi.exceededTokenCeiling) {
+    console.error("Pi exceeded CHALLENGE_TOKEN_CEILING and was terminated; see pi_exit_code 125.");
+  }
   if (runRequiresFailureExit(pi.exitCode, result.status, missingResultPaths)) process.exitCode = 1;
 }
 

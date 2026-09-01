@@ -93,6 +93,25 @@ function callFromEvent(event: unknown, index: number): CallLogEntry | undefined 
   return undefined;
 }
 
+/**
+ * Tokens the provider bills for one event line: fresh input plus cache reads.
+ *
+ * Berget publishes no cache-read discount, so a cached token costs the same as a
+ * fresh one. A model stuck repeating a tool call resends a growing context every
+ * time, which makes spend grow with the square of the call count — one looping run
+ * reached 26.6M cache-read tokens and produced nothing. The runner meters this
+ * live so a loop is stopped rather than discovered on the invoice.
+ */
+export function billableTokensFromJsonLine(line: string): number {
+  if (line.trim() === "") return 0;
+  try {
+    const call = callFromEvent(JSON.parse(line), 0);
+    return call ? call.input_tokens + call.cache_read_tokens : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function collectUsageFromJsonLines(content: string): UsageSummary {
   const calls: CallLogEntry[] = [];
 

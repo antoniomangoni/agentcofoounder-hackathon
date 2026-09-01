@@ -22,6 +22,7 @@ const model: ProductModel = {
     { id: "all", label: "All", kind: "count-nodes", entity: "item" },
     { id: "named", label: "Named", kind: "count-nodes-where", entity: "item", where: { attribute: "tag", present: true } },
     { id: "sum", label: "Sum", kind: "sum-number", entity: "item", attribute: "qty" },
+    { id: "untagged", label: "Untagged", kind: "count-nodes-where", entity: "item", where: { attribute: "tag", present: false } },
   ],
   assumptions: [],
 };
@@ -90,5 +91,30 @@ describe("store", () => {
     expect(store.query.derive(model.derived[0])).toBe(2);
     expect(store.query.derive(model.derived[1])).toBe(1);
     expect(store.query.derive(model.derived[2])).toBe(5);
+  });
+});
+
+// A model asked for "left to read" — the complement of a set boolean — and the query
+// silently read 0, costing a whole run to debugging. Both directions are covered so the
+// complement cannot regress into counting every record either.
+describe("count-nodes-where present: false", () => {
+  const add = (store: ReturnType<typeof createStore>, id: string, attributes: Record<string, string>): void => {
+    store.apply({ kind: "upsert-node", node: { id, type: "item", attributes } });
+  };
+
+  it("counts the records where the attribute is not set", () => {
+    const store = createStore(model);
+    add(store, "a", { name: "Tagged", tag: "x", qty: "1" });
+    add(store, "b", { name: "Bare", tag: "", qty: "2" });
+    add(store, "c", { name: "Also bare", qty: "3" });
+    expect(store.query.derive(model.derived[1])).toBe(1);
+    expect(store.query.derive(model.derived[3])).toBe(2);
+  });
+
+  it("counts nothing when every record has the attribute set", () => {
+    const store = createStore(model);
+    add(store, "a", { name: "One", tag: "x" });
+    add(store, "b", { name: "Two", tag: "y" });
+    expect(store.query.derive(model.derived[3])).toBe(0);
   });
 });
