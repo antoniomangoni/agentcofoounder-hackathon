@@ -294,7 +294,13 @@ async function runChallenge(args: Arguments, idea: string): Promise<void> {
   const usage = collectUsageFromJsonLines(await readFile(eventFile, "utf8"));
   const partial = await readPartialResult(outputDirectory);
   const truncatedFinal = isFinalAssistantTruncated(usage);
-  const canVerifyApp = pi.exitCode === 0 && usage.model_calls > 0 && !truncatedFinal;
+  // A run that ran out of wall clock but left a usable report is still worth
+  // checking: the harness's own vitest/build/startup evidence is independent of
+  // how Pi exited, and `composeResult` still degrades the status to `partial`.
+  // Truncation stays excluded - a report cut mid-write is not trustworthy.
+  const timedOutWithReport = pi.timedOut && partial.tests_run.length > 0 && !truncatedFinal;
+  const canVerifyApp =
+    usage.model_calls > 0 && !truncatedFinal && (pi.exitCode === 0 || timedOutWithReport);
   const startCommand = rootStartCommand(REPOSITORY_ROOT, outputDirectory);
   const unverifiedReason = truncatedFinal
     ? "final assistant message was truncated (stop_reason=length)"
@@ -302,7 +308,7 @@ async function runChallenge(args: Arguments, idea: string): Promise<void> {
       ? "app verification had not completed"
       : "Pi did not complete with audited model usage";
   let verification = unavailableAppVerification(unverifiedReason);
-  let result = composeResult(partial, usage, pi.exitCode, verification, portReclamation, startCommand);
+  let result = composeResult(partial, usage, pi.exitCode, verification, portReclamation, startCommand, timedOutWithReport);
   const appResultPath = path.join(outputDirectory, "result.json");
   const rootResultPath = path.join(REPOSITORY_ROOT, "result.json");
   const requiredResultPaths = [appResultPath, rootResultPath];
@@ -313,7 +319,7 @@ async function runChallenge(args: Arguments, idea: string): Promise<void> {
   );
   if (canVerifyApp) {
     verification = await verifyGeneratedApp(outputDirectory, artifactDirectory, { displayRoot: REPOSITORY_ROOT });
-    result = composeResult(partial, usage, pi.exitCode, verification, portReclamation, startCommand);
+    result = composeResult(partial, usage, pi.exitCode, verification, portReclamation, startCommand, timedOutWithReport);
     resultPaths = await writeResult(outputDirectory, result, [rootResultPath]);
   }
   const missingResultPaths = missingRequiredResultPaths(resultPaths, requiredResultPaths);

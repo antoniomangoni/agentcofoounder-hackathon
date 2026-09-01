@@ -97,6 +97,12 @@ The raw event stream and Pi session files are retained for audit. Official judgi
 
 `call_log` records one entry per model call. Assistant entries carry `stop_reason`, and the top-level `truncated` flag is true when any assistant message ended at the output-token cap (`length`). When the *final* assistant message is truncated, the runner treats the model run as incomplete and skips Vitest, the build, and the startup probe. `harness_checks` still lists all three, because the schema has no way to say "not run", but each `result` is `failed` and the `journey` string gives the reason. Read `truncated` before reading `harness_checks`: a truncated run's failed checks are not evidence about the generated app.
 
+Two deliberate tolerances sit alongside that gate, both affecting what a run reports rather than what the runner audits.
+
+`tests_run` entries are accepted under the near-miss spellings models actually emit: `name` for `journey`, `status` for `result`, and an absent `command` defaulting to `npm test`. Only `passed` and `failed` are accepted as outcomes, so a failed journey is never promoted; an entry whose `command` is present but malformed is still discarded. Three runs produced complete, harness-green applications and scored as if no journey ran because of a field name, and the report is participant-controlled text rather than audited evidence.
+
+A run that exceeds `CHALLENGE_TIMEOUT_MS` but leaves a `report.partial.json` naming journeys still gets Vitest, the build, and the startup probe, and reports `partial` when they pass. The harness's own evidence about the generated app is independent of how Pi exited. Such a run can never report `success`, and it still reports `failed` when any check fails or the report names no journeys. Truncated runs remain excluded, because a report cut off mid-write is not trustworthy.
+
 `truncated` and the per-call `stop_reason` are additive fields. `contract-public/result.schema.json` permits them through `additionalProperties` and does not require them, so the frozen contract did not have to change. Two consequences for judging: a stricter validator may drop them, and a run that produced no application at all still validates as a well-formed result. Schema validity is not evidence of work.
 
 `reasoning_tokens` is only as trustworthy as the provider's usage records. A provider that reports `reasoning: 0` while emitting mostly reasoning makes the field meaningless; `stop_reason` is what diagnoses those runs.

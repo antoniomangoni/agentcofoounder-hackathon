@@ -353,3 +353,125 @@ describe("result contract", () => {
     ).toEqual(["/challenge/output/app/result.json"]);
   });
 });
+
+describe("normalizeTestRun near-miss shapes", () => {
+  const base = {
+    status: "success",
+    app_url: "http://localhost:3000",
+    start_command: "npm run dev",
+    summary: "s",
+    implemented_features: [],
+    assumptions: [],
+  };
+
+  it("accepts status as an alias for result", () => {
+    const n = normalizePartialResult({
+      ...base,
+      tests_run: [{ command: "npm test", journey: "Add a record", status: "passed" }],
+    });
+    expect(n?.tests_run).toEqual([{ command: "npm test", journey: "Add a record", result: "passed" }]);
+  });
+
+  it("accepts name as an alias for journey and defaults command", () => {
+    const n = normalizePartialResult({
+      ...base,
+      tests_run: [{ name: "Add a record", status: "passed" }],
+    });
+    expect(n?.tests_run).toEqual([{ command: "npm test", journey: "Add a record", result: "passed" }]);
+  });
+
+  it("never promotes a failed journey to passed", () => {
+    const n = normalizePartialResult({
+      ...base,
+      tests_run: [{ name: "Broken journey", status: "failed" }],
+    });
+    expect(n?.tests_run).toEqual([{ command: "npm test", journey: "Broken journey", result: "failed" }]);
+  });
+
+  it("still discards entries with no recognisable outcome or journey", () => {
+    const n = normalizePartialResult({
+      ...base,
+      tests_run: [
+        { name: "No outcome" },
+        { status: "passed" },
+        { name: "  ", status: "passed" },
+        { name: "Bogus outcome", status: "skipped" },
+      ],
+    });
+    expect(n?.tests_run).toEqual([]);
+  });
+
+  it("prefers the canonical fields when both are present", () => {
+    const n = normalizePartialResult({
+      ...base,
+      tests_run: [
+        { command: "npm test", journey: "canonical", name: "alias", result: "passed", status: "failed" },
+      ],
+    });
+    expect(n?.tests_run).toEqual([{ command: "npm test", journey: "canonical", result: "passed" }]);
+  });
+});
+
+describe("normalizeTestRun command handling", () => {
+  it("drops an entry whose command is present but malformed", () => {
+    const n = normalizePartialResult({
+      status: "success",
+      app_url: "http://localhost:3000",
+      start_command: "npm run dev",
+      summary: "s",
+      implemented_features: [],
+      assumptions: [],
+      tests_run: [{ command: ["npm run build"], name: "Malformed command", status: "passed" }],
+    });
+    expect(n?.tests_run).toEqual([]);
+  });
+});
+
+describe("timed-out run that left a usable report", () => {
+  const usage = { model_calls: 12 } as never;
+  const portReclamation = { considered: false } as never;
+  const passing = {
+    passed: true,
+    checks: [{ command: "vitest run", journey: "tests", result: "passed" as const }],
+  } as never;
+  const failing = {
+    passed: false,
+    checks: [{ command: "vitest run", journey: "tests", result: "failed" as const }],
+  } as never;
+  const partial = {
+    status: "success" as const,
+    app_url: "http://localhost:3000",
+    start_command: "npm run dev",
+    summary: "s",
+    implemented_features: [],
+    assumptions: [],
+    tests_run: [{ command: "npm test", journey: "Add a record", result: "passed" as const }],
+  };
+
+  it("degrades to partial rather than failed when verification passed", () => {
+    const r = composeResult(partial, usage, 124, passing, portReclamation, "npm run dev", true);
+    expect(r.status).toBe("partial");
+    expect(r.pi_exit_code).toBe(124);
+  });
+
+  it("never reaches success on a timeout", () => {
+    const r = composeResult(partial, usage, 124, passing, portReclamation, "npm run dev", true);
+    expect(r.status).not.toBe("success");
+  });
+
+  it("still fails when the harness checks did not pass", () => {
+    const r = composeResult(partial, usage, 124, failing, portReclamation, "npm run dev", true);
+    expect(r.status).toBe("failed");
+  });
+
+  it("still fails a timeout with no journeys in the report", () => {
+    const r = composeResult(
+      { ...partial, tests_run: [] }, usage, 124, passing, portReclamation, "npm run dev", true);
+    expect(r.status).toBe("failed");
+  });
+
+  it("is unchanged when the flag is not set", () => {
+    const r = composeResult(partial, usage, 124, passing, portReclamation, "npm run dev");
+    expect(r.status).toBe("failed");
+  });
+});

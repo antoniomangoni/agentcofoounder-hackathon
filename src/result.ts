@@ -34,18 +34,32 @@ function filteredStrings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+/**
+ * Accept the near-miss shapes the model actually emits.
+ *
+ * Three runs have now produced a complete, harness-green application and still
+ * scored as if no journey ran, because the report used `status` instead of
+ * `result`, or `name` instead of `journey`, or omitted `command`. Those are
+ * spelling differences in a participant-controlled file, not evidence about the
+ * app, and the runner still owns every audited field.
+ *
+ * The outcome value itself is never rewritten: only "passed" and "failed" are
+ * accepted, so a failed journey can never be promoted to a passing one.
+ */
 function normalizeTestRun(value: unknown): TestRun | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const candidate = value as Record<string, unknown>;
-  if (
-    typeof candidate.command !== "string" ||
-    typeof candidate.journey !== "string" ||
-    !["passed", "failed"].includes(String(candidate.result))
-  ) return undefined;
+  const journey = typeof candidate.journey === "string" ? candidate.journey : candidate.name;
+  const outcome = candidate.result === undefined ? candidate.status : candidate.result;
+  // Absent command defaults; a present-but-malformed one still fails the entry.
+  if (candidate.command !== undefined && typeof candidate.command !== "string") return undefined;
+  const command = typeof candidate.command === "string" ? candidate.command : "npm test";
+  if (typeof journey !== "string" || journey.trim() === "") return undefined;
+  if (!["passed", "failed"].includes(String(outcome))) return undefined;
   return {
-    command: candidate.command,
-    journey: candidate.journey,
-    result: candidate.result as TestRun["result"],
+    command,
+    journey,
+    result: String(outcome) as TestRun["result"],
   };
 }
 
@@ -87,8 +101,30 @@ export function composeResult(
   verification: AppVerification,
   portReclamation: PortReclamationAudit,
   startCommand: string,
+  /**
+   * Pi ran out of wall clock but left a report naming journeys, and the harness
+   * verified the app independently. Such a run is incomplete, not broken, so it
+   * degrades to `partial` rather than `failed`. It can never reach `success`.
+   */
+  timedOutWithReport = false,
 ): RunResult {
-  const runFailed = piExitCode !== 0 || usage.model_calls === 0 || partial.status === "failed";
+  const salvageableTimeout = timedOutWithReport && verification.passed && partial.tests_run.length > 0;
+  const runFailed =
+    (piExitCode !== 0 && !salvageableTimeout) || usage.model_calls === 0 || partial.status === "failed";
+  if (salvageableTimeout && !runFailed) {
+    return {
+      ...partial,
+      status: "partial",
+      app_url: "http://localhost:3000",
+      start_command: startCommand,
+      tests_run: partial.tests_run,
+      harness_checks: verification.checks,
+      ...usage,
+      pi_exit_code: piExitCode,
+      telemetry_source: "pi-json-event-stream",
+      port_reclamation: portReclamation,
+    };
+  }
   const productJourneysPassed =
     partial.tests_run.length > 0 && partial.tests_run.every((test) => test.result === "passed");
   const status = runFailed ? "failed" : verification.passed && productJourneysPassed ? partial.status : "partial";
