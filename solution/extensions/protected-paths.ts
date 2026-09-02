@@ -68,6 +68,60 @@ export function createRepeatBreaker(limit: number = DEFAULT_REPEAT_LIMIT): Repea
   };
 }
 
+/**
+ * Force reasoning off on OpenAI-compatible endpoints, via the channel the server reads.
+ *
+ * Pi serializes thinking controls differently per `thinkingFormat`, and only one of those
+ * shapes survives a vLLM backend. `zai` sends a top-level `thinking: {type:"disabled"}` and
+ * `supportsThinkingTokenBudget` sends a top-level `thinking_token_budget`; both are z.ai /
+ * vLLM sampling params that a vLLM OpenAI server silently drops when it does not implement
+ * them. `chat_template_kwargs` is different: vLLM forwards it into the Jinja chat template,
+ * so it is the one channel that actually reaches the model.
+ *
+ * Measured on GLM-5.2 via Berget, same prompt and `--thinking off` in both arms: the `zai`
+ * shape produced 191 thinking chars, the `chat_template_kwargs` shape produced 0. Across
+ * three full runs of the judged idea reasoning went 18,733 -> 0 chars and output tokens
+ * 7,087 -> 2,992-4,153, which is the difference between landing on the 15-minute wall and
+ * finishing with roughly 2x margin at the worst throughput we have measured.
+ *
+ * This has to live in the extension because `~/.pi/agent/models.json` is local machine
+ * config. On judging day the organizers supply the provider and model, so a `compat` block
+ * we set here does not ship; this hook does.
+ *
+ * Deliberately conservative — a judged run must never fail because of it:
+ * - only when the operator asked for thinking `off`, so a requested reasoning level is never
+ *   silently suppressed;
+ * - only on `openai-completions`, because the Anthropic Messages API rejects unknown
+ *   top-level fields and would 400 the whole run;
+ * - only merging into an existing kwargs object, never replacing an unrecognised one;
+ * - any unexpected shape passes through untouched.
+ */
+export interface ThinkingCompatOptions {
+  api: string | undefined;
+  thinkingLevel: string;
+  enabled?: boolean;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function applyThinkingCompat(
+  payload: unknown,
+  options: ThinkingCompatOptions,
+): Record<string, unknown> | undefined {
+  if (options.enabled === false) return undefined;
+  if (options.thinkingLevel !== "off") return undefined;
+  if (options.api !== "openai-completions") return undefined;
+  if (!isPlainObject(payload)) return undefined;
+
+  const existing = payload.chat_template_kwargs;
+  if (existing !== undefined && !isPlainObject(existing)) return undefined;
+  if (existing?.enable_thinking === false) return undefined;
+
+  return { ...payload, chat_template_kwargs: { ...existing, enable_thinking: false } };
+}
+
 export default function protectedPaths(pi: ExtensionAPI) {
   const appRoot = process.cwd();
   const repeatBreaker = createRepeatBreaker(
@@ -77,6 +131,22 @@ export default function protectedPaths(pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event) => ({
     systemPrompt: stripPiDocumentationBlock(event.systemPrompt),
   }));
+
+  pi.on("before_provider_request", (event, context) => {
+    try {
+      return applyThinkingCompat(event.payload, {
+        api: context.model?.api,
+        // Pi reports no level at all for "off" (ThinkingLevel has no such member), so an
+        // absent value is ambiguous on its own. Prefer what Pi reports when it reports
+        // anything, and fall back to the runner's own setting, which run-challenge.ts
+        // passes through as `--thinking`. A real reasoning level therefore always wins.
+        thinkingLevel: context.thinkingLevel ?? process.env.CHALLENGE_THINKING ?? "off",
+        enabled: process.env.CHALLENGE_THINKING_COMPAT !== "off",
+      });
+    } catch {
+      return undefined;
+    }
+  });
 
   pi.on("tool_call", async (event, context) => {
     const repeated = repeatBreaker.check(event.toolName, event.input);

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   PI_DOCUMENTATION_HEADING,
+  applyThinkingCompat,
   createRepeatBreaker,
   stripPiDocumentationBlock,
 } from "../solution/extensions/protected-paths.js";
@@ -208,5 +209,67 @@ describe("createRepeatBreaker", () => {
     const circular: Record<string, unknown> = {};
     circular.self = circular;
     expect(breaker.check("bash", circular)).toBeUndefined();
+  });
+});
+
+describe("applyThinkingCompat", () => {
+  const offOnCompat = { api: "openai-completions", thinkingLevel: "off" };
+
+  it("injects the one channel a vLLM backend actually reads", () => {
+    const patched = applyThinkingCompat({ model: "zai-org/GLM-5.2", messages: [] }, offOnCompat);
+    expect(patched?.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(patched?.model).toBe("zai-org/GLM-5.2");
+  });
+
+  // The top-level `thinking` param is what the zai format sends and what the server drops.
+  // Removing it is not our job; the run must keep working on a real z.ai endpoint too.
+  it("leaves an existing top-level thinking param alone", () => {
+    const patched = applyThinkingCompat(
+      { messages: [], thinking: { type: "disabled" } },
+      offOnCompat,
+    );
+    expect(patched?.thinking).toEqual({ type: "disabled" });
+    expect(patched?.chat_template_kwargs).toEqual({ enable_thinking: false });
+  });
+
+  it("merges into kwargs pi already set rather than replacing them", () => {
+    const patched = applyThinkingCompat(
+      { messages: [], chat_template_kwargs: { preserve_thinking: true, enable_thinking: true } },
+      offOnCompat,
+    );
+    expect(patched?.chat_template_kwargs).toEqual({ preserve_thinking: true, enable_thinking: false });
+  });
+
+  it("is a no-op when the model config already sends the right thing", () => {
+    const payload = { messages: [], chat_template_kwargs: { enable_thinking: false } };
+    expect(applyThinkingCompat(payload, offOnCompat)).toBeUndefined();
+  });
+
+  // Anthropic's Messages API rejects unknown top-level fields, so injecting there would
+  // 400 every call of a judged run rather than degrading.
+  it("never touches a non openai-completions payload", () => {
+    expect(applyThinkingCompat({ messages: [] }, { api: "anthropic-messages", thinkingLevel: "off" }))
+      .toBeUndefined();
+    expect(applyThinkingCompat({ messages: [] }, { api: undefined, thinkingLevel: "off" }))
+      .toBeUndefined();
+  });
+
+  it("never suppresses a reasoning level the operator asked for", () => {
+    for (const thinkingLevel of ["minimal", "low", "medium", "high"]) {
+      expect(applyThinkingCompat({ messages: [] }, { api: "openai-completions", thinkingLevel }))
+        .toBeUndefined();
+    }
+  });
+
+  it("can be switched off for an A/B without editing the extension", () => {
+    expect(applyThinkingCompat({ messages: [] }, { ...offOnCompat, enabled: false })).toBeUndefined();
+  });
+
+  it("passes through any payload shape it does not recognise", () => {
+    expect(applyThinkingCompat(undefined, offOnCompat)).toBeUndefined();
+    expect(applyThinkingCompat("not a payload", offOnCompat)).toBeUndefined();
+    expect(applyThinkingCompat([1, 2, 3], offOnCompat)).toBeUndefined();
+    expect(applyThinkingCompat({ messages: [], chat_template_kwargs: "odd" }, offOnCompat))
+      .toBeUndefined();
   });
 });
