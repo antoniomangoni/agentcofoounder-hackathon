@@ -198,12 +198,22 @@ Vite can import a committed valid JSON file so `npm run build` and `--prepare-on
 | Valid JSON, wrong shape or broken derived refs | App still builds and starts; binder shows the invalid-model state |
 | Valid TS object, wrong types | Would fail `tsc` and is harder for Pi to repair than JSON |
 
-**The reference checks are unexercised.** No Pi run has produced a model that fails them. The four attempts against the seed that carries these checks (pantry ×2, timer ×2) all truncated before writing anything; the two earlier runs predate the checks. Two properties of the loader matter more than the checks until one does fire:
+**The reference checks are still unexercised, but the rejection path is not.** No Pi run has produced a model that fails a *reference* check. One has failed the shape checks, and it cost a whole run — see [Vocabulary is the agreement](#vocabulary-is-the-agreement). The four attempts against the seed that carries these checks (pantry ×2, timer ×2) all truncated before writing anything; the two earlier runs predate the checks. Two properties of the loader matter more than the checks until one does fire:
 
 - The **empty seed passes.** `title: ""` is a valid string and empty arrays satisfy every reference check, so `loadProductModel` returns `ok` on an untouched `product-model.json`. A run that wrote a good model and a run that never wrote at all are indistinguishable here; `truncated` separates them, not the loader.
-- A rejection is **silent about why.** `{ ok: false }` carries no reason and no field name, so Pi has to read `load-model.ts` and bisect its own model. That is the repair-loop shape that cost book-1 and book-2 their runs, on a path nothing has walked yet.
+- A rejection is **silent about why.** `{ ok: false }` carries no reason and no field name, so Pi has to read `load-model.ts` and bisect its own model. That is the repair-loop shape that cost book-1 and book-2 their runs — and the path has now been walked, at full cost. The loader is deliberately left silent: `graph/` is inside a [780-line budget](#size-budget) with 18 lines spare, and every line of it is read by Pi on some run. The reason is produced in [`protected-paths.ts`](../solution/extensions/protected-paths.ts) instead, whose source Pi never reads.
 
 Rejected: `product-model.ts` as the Pi artifact. Type errors and import syntax waste repair tokens.
+
+### Vocabulary is the agreement
+
+`journeys[].kind`, `derived[].kind`, and `attributes[].kind` are closed vocabularies, and until 2 September 2026 the harness never told Pi what they were. `SKILL.md` showed `add` and `persist` in an example and enumerated nothing; `types.ts` holds the unions but the skill orders Pi to read it at step 3, *after* the step-2 write.
+
+Worse, the harness disagreed with itself. Of the three texts appended to Pi's prompt, [`contract-public/journeys.md:10`](../contract-public/journeys.md) says "Show a **derived** value" and [`AGENTS.md:10`](../app-template/AGENTS.md) names the test helper `removeRecord`. The loader demands `derive` and `delete`. This section already required that "all three plus the skill must agree"; they did not.
+
+`qw-projtasks-2` used the two words the harness had shown it. Its model was otherwise complete and correct — two entities, ten journeys, one of only five models in the corpus with more than one entity — and the loader rejected all of it. The run spent 115 model calls and 15.0 minutes, the whole wall, at €0.104, and reported zero journeys. Verified by replaying `loadProductModel` over the saved file: it rejects, and accepts once those two strings are corrected and nothing else changes.
+
+This is the [core concept](personal/core-concept.md#composability-is-an-agreement-problem-not-an-interface-problem)'s own thesis failing on its own harness. Two components composed only if they agreed about what a word meant, the agreement was neither written down nor machine-reported, and the cost was a run. The fix is both halves of what that document asks for: the vocabulary is now **explicit** (enumerated in `SKILL.md` beside the shape) and **machine-checked** (`checkProductModel` in the extension re-reads the file after each write and names the failing field on the tool result). The check is a faithful mirror of the loader, and it was validated against all 103 saved models: it flags exactly the one the loader rejects and stays silent on the other 102.
 
 ### Links vs attributes
 
@@ -221,7 +231,7 @@ The rule above is correct and strict — strict enough that most single-user MVP
 
 v1 keeps `EdgeRecord` and the two edge ops. The delete cascade is the one genuine demonstration of revertible effects, and it is cheap. `count-links` is dropped from `DerivedKind` because a count over an empty edge set is not a derived value any product will ask for.
 
-**Decision (fired, 30 August 2026).** All four GLM ideas produced `links: []` — committed book-lending, pantry, timer (empty seed, hatch taken), and the normalized book restatement. There is still no composer and no binder path for a link, so empty is not evidence the model declined a graph; it is evidence there was nowhere to put one. Do not pitch a product-layer graph. This is a model-driven record store. The graph claim lives in memory (`GraphStore`) and in the harness (`buildPiArguments` / `protected-paths`), where [`core-concept.md`](personal/core-concept.md) already puts it. Kernel edge types stay; do not build a binder path for links. The [paper mapping](#paper-mapping) is rewritten to match.
+**Decision (fired, 30 August 2026; re-confirmed on n=103, 2 September 2026 — see [notes](personal/eval/notes.md)).** All four GLM ideas produced `links: []` — committed book-lending, pantry, timer (empty seed, hatch taken), and the normalized book restatement. There is still no composer and no binder path for a link, so empty is not evidence the model declined a graph; it is evidence there was nowhere to put one. Do not pitch a product-layer graph. This is a model-driven record store. The graph claim lives in memory (`GraphStore`) and in the harness (`buildPiArguments` / `protected-paths`), where [`core-concept.md`](personal/core-concept.md) already puts it. Kernel edge types stay; do not build a binder path for links. The [paper mapping](#paper-mapping) is rewritten to match.
 
 ### Revertible effects: one undo, not a history
 

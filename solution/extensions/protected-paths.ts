@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import fs from "node:fs";
 import path from "node:path";
 
 export const PI_DOCUMENTATION_HEADING = "Pi documentation (read only when ";
@@ -122,6 +123,180 @@ export function applyThinkingCompat(
   return { ...payload, chat_template_kwargs: { ...existing, enable_thinking: false } };
 }
 
+/**
+ * Tell the model why `product-model.json` will not load, at the moment it writes it.
+ *
+ * `loadProductModel` returns a bare `{ ok: false }`. The app then renders "The product
+ * definition could not be read", every journey test fails with its elements simply absent,
+ * and nothing anywhere names the field at fault. Measured cost of that silence, once, in
+ * 103 saved runs: `qw-projtasks-2` wrote a complete and otherwise correct two-entity model
+ * with `"kind": "remove"` and `"kind": "derived"` in `journeys[]`, then spent 115 model
+ * calls and 15.0 minutes -- the whole wall -- and EUR 0.104 failing to find it, and reported
+ * zero journeys.
+ *
+ * The vocabulary is not something the model could have guessed. `contract-public/journeys.md`
+ * says "Show a derived value", `AGENTS.md` names the test helper `removeRecord`, and the
+ * loader demands `derive` and `delete`. The two words the run used are the two words the
+ * harness showed it. `SKILL.md` now states the closed lists; this is the net under that.
+ *
+ * It lives here rather than in `load-model.ts` because `graph/` + `composers/` + `App.tsx`
+ * is a 780-line budget with 18 lines spare, and every line of it is read by the model on
+ * some run. Extension source is never read, so this costs nothing that is measured.
+ *
+ * The check is a faithful mirror of `loadProductModel`, and the risk it manages is a false
+ * positive: telling the model to repair a model that would have loaded fine would cost a run
+ * exactly the way the silence did. So it reports only faults that provably reject, returns
+ * nothing on anything it does not fully understand, and never blocks the write.
+ */
+const JOURNEY_KINDS = ["add", "edit", "delete", "filter", "derive", "persist"];
+const DERIVED_KINDS = ["count-nodes", "count-nodes-where", "sum-number"];
+const ATTRIBUTE_KINDS = ["text", "textarea", "choice", "number", "boolean", "date"];
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+const isString = (value: unknown): value is string => typeof value === "string";
+
+function shown(value: unknown): string {
+  return isString(value) ? `"${value}"` : typeof value === "undefined" ? "missing" : JSON.stringify(value);
+}
+
+function oneOf(kinds: string[]): string {
+  return kinds.join(", ");
+}
+
+function checkAttribute(raw: unknown, at: string): string | undefined {
+  if (!isRecord(raw)) return `${at} is not an object`;
+  if (!isString(raw.id)) return `${at}.id is ${shown(raw.id)}, and must be a string`;
+  if (!isString(raw.label)) return `${at}.label is ${shown(raw.label)}, and must be a string`;
+  if (!ATTRIBUTE_KINDS.includes(String(raw.kind)))
+    return `${at}.kind is ${shown(raw.kind)}, which is not an attribute kind. Use one of: ${oneOf(ATTRIBUTE_KINDS)}`;
+  if (typeof raw.required !== "boolean") return `${at}.required is ${shown(raw.required)}, and must be true or false`;
+  if (raw.unique !== undefined && typeof raw.unique !== "boolean")
+    return `${at}.unique is ${shown(raw.unique)}, and must be true or false when present`;
+  if (raw.choices !== undefined && !(Array.isArray(raw.choices) && raw.choices.every(isString)))
+    return `${at}.choices must be an array of strings when present`;
+  return undefined;
+}
+
+function checkEntity(raw: unknown, at: string): string | undefined {
+  if (!isRecord(raw)) return `${at} is not an object`;
+  for (const key of ["id", "singular", "plural"]) {
+    if (!isString(raw[key])) return `${at}.${key} is ${shown(raw[key])}, and must be a string`;
+  }
+  if (!Array.isArray(raw.attributes)) return `${at}.attributes is ${shown(raw.attributes)}, and must be an array`;
+  for (const [index, attribute] of raw.attributes.entries()) {
+    const reason = checkAttribute(attribute, `${at}.attributes[${String(index)}]`);
+    if (reason) return reason;
+  }
+  return undefined;
+}
+
+function checkDerivedShape(raw: unknown, at: string): string | undefined {
+  if (!isRecord(raw)) return `${at} is not an object`;
+  if (!isString(raw.id)) return `${at}.id is ${shown(raw.id)}, and must be a string`;
+  if (!isString(raw.label)) return `${at}.label is ${shown(raw.label)}, and must be a string`;
+  if (!DERIVED_KINDS.includes(String(raw.kind)))
+    return `${at}.kind is ${shown(raw.kind)}, which is not a derived kind. Use one of: ${oneOf(DERIVED_KINDS)}`;
+  if (!isString(raw.entity)) return `${at}.entity is ${shown(raw.entity)}, and must name an entity`;
+  if (raw.attribute !== undefined && !isString(raw.attribute))
+    return `${at}.attribute is ${shown(raw.attribute)}, and must be a string when present`;
+  if (raw.where === undefined) return undefined;
+  if (!isRecord(raw.where)) return `${at}.where is not an object`;
+  if (!isString(raw.where.attribute))
+    return `${at}.where.attribute is ${shown(raw.where.attribute)}, and must name an attribute`;
+  if (raw.where.present !== undefined && typeof raw.where.present !== "boolean")
+    return `${at}.where.present must be true or false when present`;
+  if (raw.where.equals !== undefined && !isString(raw.where.equals))
+    return `${at}.where.equals must be a string when present`;
+  return undefined;
+}
+
+function checkDerivedReferences(raw: Record<string, unknown>): string | undefined {
+  const entities = new Map<string, Record<string, unknown>>();
+  for (const entity of raw.entities as Record<string, unknown>[]) {
+    entities.set(String(entity.id), entity);
+  }
+  for (const [index, query] of (raw.derived as Record<string, unknown>[]).entries()) {
+    const at = `derived[${String(index)}]`;
+    const entity = entities.get(String(query.entity));
+    if (!entity)
+      return `${at}.entity is ${shown(query.entity)}, but no entity has that id. Declared entities: ${
+        entities.size === 0 ? "none" : oneOf([...entities.keys()])
+      }`;
+    const attributes = new Map<string, Record<string, unknown>>();
+    for (const attribute of entity.attributes as Record<string, unknown>[]) {
+      attributes.set(String(attribute.id), attribute);
+    }
+    const known = attributes.size === 0 ? "none" : oneOf([...attributes.keys()]);
+    if (query.attribute !== undefined && !attributes.has(String(query.attribute)))
+      return `${at}.attribute is ${shown(query.attribute)}, but ${String(entity.id)} has no such attribute. It has: ${known}`;
+    if (isRecord(query.where) && !attributes.has(String(query.where.attribute)))
+      return `${at}.where.attribute is ${shown(query.where.attribute)}, but ${String(entity.id)} has no such attribute. It has: ${known}`;
+    if (query.kind === "count-nodes-where" && query.where === undefined)
+      return `${at} is a count-nodes-where query with no "where", so there is nothing to count`;
+    if (query.kind === "sum-number") {
+      const attribute = query.attribute === undefined ? undefined : attributes.get(String(query.attribute));
+      if (!attribute)
+        return `${at} is a sum-number query with no "attribute" naming the number to add up`;
+      if (attribute.kind !== "number")
+        return `${at}.attribute is ${shown(query.attribute)}, which is a ${shown(attribute.kind)} attribute. sum-number needs a number attribute`;
+    }
+  }
+  return undefined;
+}
+
+/** The reason `loadProductModel` will reject this, or undefined when it will load. */
+export function checkProductModel(raw: unknown): string | undefined {
+  if (!isRecord(raw)) return "the file is not a JSON object";
+  if (!isString(raw.title)) return `title is ${shown(raw.title)}, and must be a string`;
+
+  if (!Array.isArray(raw.entities)) return `entities is ${shown(raw.entities)}, and must be an array`;
+  if (!Array.isArray(raw.links)) return `links is ${shown(raw.links)}, and must be an array`;
+  if (!Array.isArray(raw.journeys)) return `journeys is ${shown(raw.journeys)}, and must be an array`;
+  if (!Array.isArray(raw.derived)) return `derived is ${shown(raw.derived)}, and must be an array`;
+  if (!Array.isArray(raw.assumptions)) return `assumptions is ${shown(raw.assumptions)}, and must be an array`;
+
+  for (const [index, entity] of raw.entities.entries()) {
+    const reason = checkEntity(entity, `entities[${String(index)}]`);
+    if (reason) return reason;
+  }
+  for (const [index, link] of raw.links.entries()) {
+    const at = `links[${String(index)}]`;
+    if (!isRecord(link)) return `${at} is not an object`;
+    for (const key of ["id", "label", "from", "to"]) {
+      if (!isString(link[key])) return `${at}.${key} is ${shown(link[key])}, and must be a string`;
+    }
+    if (typeof link.optional !== "boolean")
+      return `${at}.optional is ${shown(link.optional)}, and must be true or false`;
+  }
+  for (const [index, journey] of raw.journeys.entries()) {
+    const at = `journeys[${String(index)}]`;
+    if (!isRecord(journey)) return `${at} is not an object`;
+    if (!JOURNEY_KINDS.includes(String(journey.kind)))
+      return `${at}.kind is ${shown(journey.kind)}, which is not a journey kind. Use one of: ${oneOf(JOURNEY_KINDS)}`;
+    if (!isString(journey.journey)) return `${at}.journey is ${shown(journey.journey)}, and must be a string`;
+  }
+  for (const [index, query] of raw.derived.entries()) {
+    const reason = checkDerivedShape(query, `derived[${String(index)}]`);
+    if (reason) return reason;
+  }
+  for (const [index, assumption] of raw.assumptions.entries()) {
+    if (!isString(assumption)) return `assumptions[${String(index)}] is ${shown(assumption)}, and must be a string`;
+  }
+
+  return checkDerivedReferences(raw);
+}
+
+/** The note appended to the write result. Names the fault and the symptom it would otherwise cause. */
+export function productModelDiagnostic(reason: string): string {
+  return (
+    `product-model.json will not load: ${reason}.\n\n` +
+    "Until this is fixed the app renders \"The product definition could not be read\" instead of the " +
+    "product, and every journey test fails with its elements missing rather than with an error naming " +
+    "this file. Fix the field above; do not change src/graph/ or App.tsx to work around it."
+  );
+}
+
 export default function protectedPaths(pi: ExtensionAPI) {
   const appRoot = process.cwd();
   const repeatBreaker = createRepeatBreaker(
@@ -143,6 +318,26 @@ export default function protectedPaths(pi: ExtensionAPI) {
         thinkingLevel: context.thinkingLevel ?? process.env.CHALLENGE_THINKING ?? "off",
         enabled: process.env.CHALLENGE_THINKING_COMPAT !== "off",
       });
+    } catch {
+      return undefined;
+    }
+  });
+
+  // Report a model the app cannot load, in the same turn as the write that broke it.
+  // Never blocks: the write already succeeded, and a false positive here would cost a run
+  // the same way the silence it replaces did. Any surprise leaves the result untouched.
+  pi.on("tool_result", (event) => {
+    try {
+      if (event.isError) return undefined;
+      if (event.toolName !== "write" && event.toolName !== "edit") return undefined;
+      const candidate = String(event.input.path ?? "");
+      if (path.basename(candidate) !== "product-model.json") return undefined;
+
+      const absolute = path.resolve(appRoot, candidate);
+      const reason = checkProductModel(JSON.parse(fs.readFileSync(absolute, "utf8")));
+      if (!reason) return undefined;
+
+      return { content: [...event.content, { type: "text" as const, text: productModelDiagnostic(reason) }] };
     } catch {
       return undefined;
     }

@@ -49,6 +49,12 @@ description: Turn a non-technical product idea into a small, tested browser appl
 }
 ```
 
+`kind` is a closed vocabulary. Nothing outside these lists loads, and one wrong word rejects the whole model:
+
+- `journeys[].kind`: `add`, `edit`, `delete`, `filter`, `derive`, `persist` — never `remove`, never `derived`.
+- `derived[].kind`: `count-nodes`, `count-nodes-where`, `sum-number`.
+- `attributes[].kind`: `text`, `textarea`, `choice`, `number`, `boolean`, `date`.
+
 FilterBar options (do not open composer source): optional text → `{label} present`; boolean → the attribute label; choice → `{label}: {choice}`. That is how “has a note” / “currently out” is expressed.
 3. After that write, read only `src/graph/types.ts`, `src/product-model.json`, and `src/App.tsx`. Do not invent a parallel architecture. Do not open `store.ts`, `persist.ts`, `GraphProvider.tsx`, or composer modules.
 4. Implement accessible controls, validation, empty states, errors, and responsive layout. Handle duplicate or repeated actions, boundary values, malformed stored data, and recoverable storage or runtime failures where relevant.

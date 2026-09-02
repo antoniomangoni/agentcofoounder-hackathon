@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,7 +6,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   PI_DOCUMENTATION_HEADING,
   applyThinkingCompat,
+  checkProductModel,
   createRepeatBreaker,
+  default as protectedPaths,
+  productModelDiagnostic,
   stripPiDocumentationBlock,
 } from "../solution/extensions/protected-paths.js";
 import { buildPiArguments, parseArguments, runPi, runRequiresFailureExit } from "../src/run-challenge.js";
@@ -271,5 +274,195 @@ describe("applyThinkingCompat", () => {
     expect(applyThinkingCompat([1, 2, 3], offOnCompat)).toBeUndefined();
     expect(applyThinkingCompat({ messages: [], chat_template_kwargs: "odd" }, offOnCompat))
       .toBeUndefined();
+  });
+});
+
+describe("checkProductModel", () => {
+  const model = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    title: "Items",
+    entities: [
+      {
+        id: "item",
+        singular: "item",
+        plural: "items",
+        attributes: [
+          { id: "name", label: "Name", kind: "text", required: true },
+          { id: "qty", label: "Qty", kind: "number", required: false },
+        ],
+      },
+    ],
+    links: [],
+    journeys: [{ kind: "add", journey: "Add an item" }],
+    derived: [],
+    assumptions: [],
+    ...overrides,
+  });
+
+  it("passes the empty seed and a valid model", () => {
+    expect(
+      checkProductModel({ title: "", entities: [], links: [], journeys: [], derived: [], assumptions: [] }),
+    ).toBeUndefined();
+    expect(checkProductModel(model())).toBeUndefined();
+  });
+
+  it("names the journey kind that cost qw-projtasks-2 its run", () => {
+    const reason = checkProductModel(
+      model({
+        journeys: [
+          { kind: "add", journey: "Add a job" },
+          { kind: "remove", journey: "Delete a job" },
+        ],
+      }),
+    );
+    expect(reason).toBe(
+      'journeys[1].kind is "remove", which is not a journey kind. ' +
+        "Use one of: add, edit, delete, filter, derive, persist",
+    );
+  });
+
+  it("names the derived kind, and accepts the correct spellings of both", () => {
+    expect(checkProductModel(model({ journeys: [{ kind: "derived", journey: "Show a count" }] }))).toContain(
+      "not a journey kind",
+    );
+    expect(
+      checkProductModel(model({ derived: [{ id: "n", label: "Count", kind: "count", entity: "item" }] })),
+    ).toBe(
+      'derived[0].kind is "count", which is not a derived kind. ' +
+        "Use one of: count-nodes, count-nodes-where, sum-number",
+    );
+    expect(
+      checkProductModel(
+        model({
+          journeys: [
+            { kind: "delete", journey: "Delete an item" },
+            { kind: "derive", journey: "Show a count" },
+          ],
+          derived: [{ id: "n", label: "Count", kind: "count-nodes", entity: "item" }],
+        }),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("names an attribute kind that does not exist", () => {
+    const reason = checkProductModel(
+      model({
+        entities: [
+          {
+            id: "item",
+            singular: "item",
+            plural: "items",
+            attributes: [{ id: "when", label: "When", kind: "datetime", required: true }],
+          },
+        ],
+      }),
+    );
+    expect(reason).toContain("entities[0].attributes[0].kind");
+    expect(reason).toContain("text, textarea, choice, number, boolean, date");
+  });
+
+  it("reports broken derived references and lists what is available", () => {
+    expect(checkProductModel(model({ derived: [{ id: "n", label: "N", kind: "count-nodes", entity: "job" }] })))
+      .toContain("no entity has that id. Declared entities: item");
+    expect(
+      checkProductModel(
+        model({
+          derived: [
+            { id: "n", label: "N", kind: "count-nodes-where", entity: "item", where: { attribute: "typo", present: true } },
+          ],
+        }),
+      ),
+    ).toContain("item has no such attribute. It has: name, qty");
+    expect(checkProductModel(model({ derived: [{ id: "n", label: "N", kind: "count-nodes-where", entity: "item" }] })))
+      .toContain("nothing to count");
+    expect(
+      checkProductModel(
+        model({ derived: [{ id: "s", label: "Total", kind: "sum-number", entity: "item", attribute: "name" }] }),
+      ),
+    ).toContain("sum-number needs a number attribute");
+    expect(
+      checkProductModel(
+        model({ derived: [{ id: "s", label: "Total", kind: "sum-number", entity: "item", attribute: "qty" }] }),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("reports a file that is not a model at all", () => {
+    expect(checkProductModel(null)).toBe("the file is not a JSON object");
+    expect(checkProductModel([])).toBe("the file is not a JSON object");
+    expect(checkProductModel({ title: 1 })).toContain("title is 1");
+    expect(checkProductModel({ title: "x" })).toContain("entities is missing");
+  });
+
+  it("explains the symptom the model would otherwise have to diagnose", () => {
+    const note = productModelDiagnostic("journeys[1].kind is \"remove\"");
+    expect(note).toContain('journeys[1].kind is "remove"');
+    expect(note).toContain("The product definition could not be read");
+    expect(note).toContain("do not change src/graph/ or App.tsx");
+  });
+});
+
+describe("product-model diagnostics on tool_result", () => {
+  type Handler = (event: Record<string, unknown>) => { content?: unknown[] } | undefined;
+
+  async function handlerAndFile(contents: string): Promise<{ run: Handler; file: string }> {
+    const handlers = new Map<string, Handler>();
+    protectedPaths({
+      on: (event: string, handler: Handler) => handlers.set(event, handler),
+    } as never);
+    const handler = handlers.get("tool_result");
+    if (!handler) throw new Error("no tool_result handler registered");
+    const directory = await mkdtemp(path.join(os.tmpdir(), "agent-cofounder-model-check-"));
+    temporaryDirectories.push(directory);
+    const file = path.join(directory, "product-model.json");
+    await writeFile(file, contents);
+    return { run: handler, file };
+  }
+
+  const result = (file: string, overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    toolName: "write",
+    isError: false,
+    input: { path: file },
+    content: [{ type: "text", text: "wrote 1 file" }],
+    ...overrides,
+  });
+
+  it("appends the reason to a write that broke the model, keeping the original content", async () => {
+    const { run, file } = await handlerAndFile(
+      JSON.stringify({
+        title: "Jobs",
+        entities: [],
+        links: [],
+        journeys: [{ kind: "remove", journey: "Delete a job" }],
+        derived: [],
+        assumptions: [],
+      }),
+    );
+    const returned = run(result(file));
+    expect(returned?.content).toHaveLength(2);
+    expect(returned?.content?.[0]).toEqual({ type: "text", text: "wrote 1 file" });
+    expect(JSON.stringify(returned?.content?.[1])).toContain("not a journey kind");
+  });
+
+  it("stays silent on a model that loads, on other files, and on a failed write", async () => {
+    const valid = JSON.stringify({
+      title: "Jobs",
+      entities: [],
+      links: [],
+      journeys: [{ kind: "delete", journey: "Delete a job" }],
+      derived: [],
+      assumptions: [],
+    });
+    const { run, file } = await handlerAndFile(valid);
+    expect(run(result(file))).toBeUndefined();
+    expect(run(result(file, { isError: true }))).toBeUndefined();
+    expect(run(result(file, { toolName: "bash" }))).toBeUndefined();
+    expect(run(result(path.join(path.dirname(file), "App.tsx")))).toBeUndefined();
+  });
+
+  it("never throws on unreadable or unparseable input", async () => {
+    const { run, file } = await handlerAndFile("{ not json");
+    expect(run(result(file))).toBeUndefined();
+    expect(run(result(path.join(path.dirname(file), "nope/product-model.json")))).toBeUndefined();
+    expect(run(result(file, { input: {} }))).toBeUndefined();
   });
 });
