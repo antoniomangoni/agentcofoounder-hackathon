@@ -33,13 +33,16 @@ with the plain seed it writes the whole application.
 
 Four things, stated because a reader will find them.
 
-1. **The plain arm predates the thinking fix** (31 August; the fix landed 1 September), and its
-   session logs were pruned before `thinking_chars` was instrumented. `reasoning_tokens` reports 0
-   for those runs, but this repository does not trust that field — see the last paragraph of
-   "Result and telemetry ownership" in `README.md`. So some unknown share of that 14.6k–16k may be
-   reasoning rather than code. It cannot have been most of it: those runs demonstrably wrote
-   1,080–1,478 lines of source, which at any plausible tokens-per-line accounts for the bulk of
-   the budget. Treat the token gap as real but not precisely 4x.
+1. **The plain arm predates the thinking fix** (31 August; the fix landed 1 September), so it was
+   emitting reasoning the graph arm was not. This is measured rather than assumed. Replaying those
+   three sessions gives 8,202, 12,580 and 16,297 characters of reasoning — roughly 2,000–4,100
+   tokens of a 14,636–15,970 token budget, or 13–28%. `reasoning_tokens` reports 0 for these runs
+   and is simply wrong, which is why this repository does not trust that field.
+
+   The gap survives the correction. Subtract all of the reasoning and the plain arm still emits
+   about 11k–14k output tokens of application code against the graph arm's 2,992–4,575 at zero
+   reasoning. The thinking fix alone would not have rescued it: those runs are output-bound by
+   code volume, and each one still had 1,080–1,478 lines to write.
 2. **291–389 of the plain arm's lines are CSS**, which the graph seed absorbs with a classless
    base. That is a real saving, but it is a styling decision rather than a composability result.
 3. **Wall-clock figures are throughput-dependent.** Berget's observed throughput varies roughly
