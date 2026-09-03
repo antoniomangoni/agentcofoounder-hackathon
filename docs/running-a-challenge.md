@@ -73,6 +73,57 @@ rsync -a --exclude node_modules --exclude dist output/app/ <somewhere>/app-<name
 Two things worth measuring are only in `sessions/*.jsonl`, never in `result.json`: the per-call
 `thinking` character count, and which call made the first write.
 
-A run killed at the timeout exits 124, and the harness checks (Vitest, build, port probe) do not
-run — `canVerifyApp` requires `pi.exitCode === 0`. A "failed" harness line on a timed-out run
-means the checks were skipped, not that the app is broken.
+A run killed at the timeout exits 124. Whether the harness checks (Vitest, build, port probe)
+still run depends on what the run left behind. `canVerifyApp` accepts a run that was stopped
+early — out of wall clock, or stopped for runaway token spend — as long as it made at least one
+model call, its final assistant message was not truncated, and `report.partial.json` names at
+least one journey (`src/run-challenge.ts:343-345`). Such a run is verified normally and then
+degraded to `partial`; it can never report `success`.
+
+A run that was stopped early and left no journeys, or whose final message was truncated, is not
+verified at all. It still lists all three checks, because the schema cannot say "not run", but
+each one reads `failed`. So a "failed" harness line is ambiguous on its own: read `truncated` and
+`tests_run` first to tell a skipped check from a broken app.
+
+## The judged environment
+
+What the organizers confirmed for the Starter Repo Track, and what was verified here against it.
+
+**Entry point.** `npm run challenge` is what they run. The BYO tracks document their own command;
+this track does not.
+
+**Platform: `linux/arm64`.** Judging happens on Apple Silicon. Nothing here ships a compiled
+binary, and both lockfiles carry the full platform matrix — `@esbuild/linux-arm64` and
+`@rollup/rollup-linux-arm64-gnu` are present alongside their x64 counterparts, so `npm ci`
+resolves the right ones per platform. The base image, `node:22.19.0-bookworm-slim`, publishes
+arm64. No architecture-specific work is required. This was checked by reading the lockfiles, not
+by building on arm64: buildx and qemu were unavailable on the development machine.
+
+**Network: open at build, closed at run apart from the model provider.** This matters more than
+it looks, because a judged run installs dependencies before Pi is ever invoked —
+`npm ci --ignore-scripts --prefer-offline` in the generated app (`src/run-challenge.ts:296`).
+`--prefer-offline` prefers the cache but will still reach for the registry if something is
+missing, so a cold cache on a closed network would kill every run before the first model call.
+
+It does not, because the cache is warm. `Dockerfile` sets `npm_config_cache=/challenge/.npm-cache`
+and populates it with `npm --prefix app-template ci` at build time, and the generated app is a
+copy of `app-template` carrying the same lockfile. Verified by installing that lockfile with
+strict `--offline`, which fails rather than falling back: 167 packages, exit 0. Nothing in the
+run path fetches anything else.
+
+**The image is what they execute.** "We run what you submit, your Dockerfile and your runtime" —
+the checklist's "organizer-controlled runtime" line is the contradiction they said they would fix.
+So `Dockerfile` runs on their machine and anything in it is a build gate.
+
+That is why the image no longer runs `npm run check` verbatim. It runs the same suite minus
+`test/verify-app.test.ts`, whose seven cases spawn real Vite servers in a temp directory against
+`serverTimeoutMs` budgets of 1, 2 and 10 seconds. They are the only timing-dependent tests here and
+they pass locally, but a flake inside an image build fails the build outright — an unjudgeable
+submission rather than a lower score. The remaining gate is `tsc`, the six deterministic root test
+files (77 tests), the 43 kernel tests and the production build, none of which depend on wall clock.
+Run the full `npm run check`, `verify-app` included, outside the image.
+
+**Audit artifacts.** The submission asks for "trace.jsonl". This harness emits
+`artifacts/runs/<timestamp>/events.jsonl` (the raw JSON event stream) and `sessions/*.jsonl`
+(the Pi session), which are the two artifacts `docs/organizer-checklist.md` requires. Ship both;
+the name differs, the content is what is asked for.

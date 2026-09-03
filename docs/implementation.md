@@ -1,6 +1,8 @@
 # Graph-composed MVP harness
 
-Spec for a later coding pass. No kernel, prompt, or runner changes land until that pass.
+The coding pass landed: the kernel, composers, skill, extension and runner changes
+described here are committed and measured. Sections that still describe intent rather than
+shipped behaviour say so explicitly.
 
 Two layers, both domain-neutral:
 

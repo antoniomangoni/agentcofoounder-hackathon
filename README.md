@@ -47,6 +47,17 @@ The strict Node engine is intentional. `npm ci` fails on Node 23+ (including Nod
 
 The Docker build runs the full check suite, including short-lived Vite servers over the builder's loopback interface. The image declares port 3000 for organizer-controlled browser evaluation; publishing that port still requires an explicit container port mapping or shared container network.
 
+The image builds and runs on `linux/arm64` as well as `linux/amd64`. No compiled binary is
+vendored here, both lockfiles carry the full platform matrix for esbuild and rollup, and
+`node:22.19.0-bookworm-slim` publishes both architectures.
+
+A run installs the generated app's dependencies before invoking Pi, with
+`npm ci --ignore-scripts --prefer-offline`. That needs no network when the npm cache is warm,
+which the Docker build guarantees by setting `npm_config_cache` and installing the identical
+`app-template` lockfile at build time. Installing that lockfile with strict `--offline` completes
+all 167 packages, so a judged run whose only permitted egress is the model provider still starts.
+See [docs/running-a-challenge.md](docs/running-a-challenge.md) for the judged environment in full.
+
 ## Run the public challenge
 
 The runner uses `contract-public/development-idea.txt` by default. During template development it contains a placeholder; organizers must replace that file with the finalized public prompt before participant distribution.
