@@ -44,24 +44,50 @@ export interface RepeatBreaker {
   check(toolName: string, input: unknown): { block: true; reason: string } | undefined;
 }
 
+/**
+ * Count on the command's first line, not the whole invocation.
+ *
+ * Keying on the entire input only catches byte-identical commands, which misses the
+ * loop shape that actually occurs: a model debugging through a heredoc rewrites the
+ * same file over and over, so the first line is constant
+ * (`cd … && cat > src/dbg.test.ts <<'EOF'`) while the body differs every time. One
+ * observed run repeated exactly that 34 times without the breaker ever counting past
+ * one, and spent the whole wall clock on it.
+ *
+ * The first line is the conservative normalization. It collapses heredocs, whose
+ * variation is always below it, while leaving single-line commands that differ in
+ * their arguments (`npm test -- -t "A"` vs `-t "B"`) as distinct keys. Over-blocking a
+ * healthy repair loop is worse than missing a loop the wall clock will catch anyway,
+ * so nothing more aggressive than this is worth doing.
+ */
+function repeatKey(input: unknown): string | undefined {
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(input);
+  } catch {
+    return undefined;
+  }
+  if (serialized === undefined) return undefined;
+  const command = (input as { command?: unknown } | null)?.command;
+  if (typeof command !== "string") return serialized;
+  const firstLine = (command.split("\n", 1)[0] ?? "").trim();
+  return firstLine.length > 0 ? firstLine : serialized;
+}
+
 export function createRepeatBreaker(limit: number = DEFAULT_REPEAT_LIMIT): RepeatBreaker {
   const counts = new Map<string, number>();
   return {
     check(toolName, input) {
       if (toolName !== "bash") return undefined;
-      let key: string;
-      try {
-        key = JSON.stringify(input);
-      } catch {
-        return undefined;
-      }
+      const key = repeatKey(input);
+      if (key === undefined) return undefined;
       const seen = (counts.get(key) ?? 0) + 1;
       counts.set(key, seen);
       if (seen < limit) return undefined;
       return {
         block: true,
         reason:
-          `This exact command has already run ${String(seen)} times with the same result. ` +
+          `This command has already run ${String(seen)} times with the same result. ` +
           "Repeating it will not change anything. Try a different approach, and if you are " +
           "debugging a value that is always empty, check the model you wrote rather than the app.",
       };

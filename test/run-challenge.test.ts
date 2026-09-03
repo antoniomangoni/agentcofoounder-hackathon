@@ -199,6 +199,27 @@ describe("createRepeatBreaker", () => {
     expect(breaker.check("bash", bash("npm run build"))?.block).toBe(true);
   });
 
+  // Observed on a real run: the model debugged by rewriting one file through a heredoc
+  // 34 times. Every invocation shared a first line and differed in the body, so keying
+  // on the whole input counted each one separately and the breaker never fired.
+  it("blocks a heredoc loop whose body changes every time", () => {
+    const breaker = createRepeatBreaker(12);
+    const rewrite = (body: string) => bash(`cd /app && cat > src/dbg.test.ts <<'EOF'\n${body}\nEOF`);
+    for (let attempt = 0; attempt < 11; attempt += 1) {
+      expect(breaker.check("bash", rewrite(`it("case ${String(attempt)}", () => {});`))).toBeUndefined();
+    }
+    expect(breaker.check("bash", rewrite("it('finally', () => {});"))?.block).toBe(true);
+  });
+
+  // The other half of that trade: normalising must not merge commands whose arguments
+  // are the whole point of running them again.
+  it("keeps single-line commands with different arguments distinct", () => {
+    const breaker = createRepeatBreaker(3);
+    for (const journey of ["add", "edit", "delete", "filter", "count", "refresh"]) {
+      expect(breaker.check("bash", bash(`npm test -- -t "${journey}"`))).toBeUndefined();
+    }
+  });
+
   it("meters only bash, so reads and writes are never blocked", () => {
     const breaker = createRepeatBreaker(2);
     for (let attempt = 0; attempt < 30; attempt += 1) {

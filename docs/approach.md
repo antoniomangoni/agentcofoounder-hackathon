@@ -101,9 +101,14 @@ field is accepted and silently dropped. So `CHALLENGE_THINKING=off` did not reac
 Measured on one model: 18,733 reasoning characters to 0, output tokens 7,087 to roughly 3,700, and
 a run that died at the wall became one that finishes in under four minutes.
 
-**Repeat breaker.** An identical `bash` command is refused after 12 attempts, with an explanation
+**Repeat breaker.** A repeated `bash` command is refused after 12 attempts, with an explanation
 the model can act on. Calibrated, not guessed: healthy runs repeat their most-repeated command
-2–7 times, which is ordinary repair; stuck runs reached 33–126.
+2–7 times, which is ordinary repair; stuck runs reached 33–126. Repeats are counted on the
+command's first line, not the whole invocation — a model debugging through a heredoc keeps the
+first line constant and varies the body, and one observed run repeated that 34 times while
+whole-input keying counted each as unique. The first line collapses heredocs while keeping
+`npm test -- -t "A"` and `-t "B"` distinct; anything more aggressive risks blocking healthy
+repair, which is worse than missing a loop the wall clock already bounds.
 
 **Token ceiling.** A run is stopped when billable tokens cross 3,000,000. A model repeating one
 tool call resends a growing context each time, so spend grows with the square of the call count
