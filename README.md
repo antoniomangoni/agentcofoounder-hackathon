@@ -12,27 +12,43 @@ architecture. Four extension hooks intercept the run from outside the prompt, so
 costs context.
 
 Output tokens are the currency twice over: the ranked cost term, and the wall clock, since wall
-time is output tokens over throughput. The seed exists to move them off the model.
+time is output tokens over throughput. Two things in this repository move them off the model, and
+they do different jobs.
 
-Same idea, same model, same 15-minute wall; the seed is the only variable:
+**The thinking hook decides whether a run finishes at all.** Same checkout, same idea, same model,
+reasoning on vs. off — nothing else changed:
 
-| Arm | Model-authored lines | Output tokens | Wall | Harness | Journeys |
+| Plain seed | Reasoning | Output tokens | Wall | Harness | Journeys |
 | --- | --- | --- | --- | --- | --- |
-| **Graph seed**, n=5 | 115–137 | 2,992–4,575 | 2.8–4.9 min | 15/15 | 6–11 |
-| **Plain seed**, n=3 | 1,080–1,478 | 14,636–15,970 | 15.0 min, all three | 0/9 | 0 |
+| n=3 | on | 14,636–15,970 | 15.0 min, **all three killed** | 0/9 | 0 |
+| n=3 | off | 12,998–17,336 | 12.8–14.0 min | 9/9 | 5–12 |
 
-Every plain-seed run was killed at the wall with nothing verifiable; every graph-seed run finished
-under five minutes green. Across nine further ideas, eleven of eleven runs succeeded at
-`thinking_chars: 0` — deliberately against a *wrong* local model configuration, because local
-configuration does not ship and the extension has to carry judging day alone. Two of those ideas
-had never once passed on this model before.
+**The seed decides how much room is left once it does.** Same idea, same model, reasoning off in
+both:
+
+| Arm | Output tokens | Wall | Cost | Journeys |
+| --- | --- | --- | --- | --- |
+| **Graph seed**, n=5 | 2,992–4,575 | 2.8–4.9 min | €0.0248–0.0341 | 6–11 |
+| **Plain seed**, n=3 | 12,998–17,336 | 12.8–14.0 min | €0.068–0.089 | 5–12 |
+
+Both arms pass, at roughly 4x the tokens and 2.6x the cost apart. What separates them is margin
+against the 15-minute wall: the plain arm's slowest run leaves 1.0 minute; the graph arm's leaves
+10.1. Berget's measured throughput varies roughly 3x by time of day, and every run above was taken
+in a good window — a plain-seed run that passes at 14.0 minutes in the evening does not pass at
+midday. Put as a tolerance, the plain arm survives a 1.07x slowdown before the wall; the graph arm
+survives 3.06x.
+
+Across nine further ideas, eleven of eleven runs succeeded at `thinking_chars: 0` — deliberately
+against a *wrong* local model configuration, because local configuration does not ship and the
+extension has to carry judging day alone. Two of those ideas had never once passed on this model
+before.
 
 The ontology has entities, attributes, journeys, derived values and links. Across 118 saved
 product models, 78 declare an entity and exactly **1** declares a link, which no composer renders.
 At the product layer this is a model-driven record store; the graph claim belongs to the harness.
 
-**[docs/approach.md](docs/approach.md)** has the argument, the four confounds in that table, the
-hook measurements, and what is not measured.
+**[docs/approach.md](docs/approach.md)** has the argument, the confounds in both tables, the other
+two hook measurements, and what is not measured.
 
 ## Repository boundary
 

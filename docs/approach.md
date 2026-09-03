@@ -16,40 +16,57 @@ Output tokens are the currency twice over: they are the ranked cost term, and th
 clock, because wall time is output tokens divided by throughput. Anything that moves output
 tokens off the model moves both.
 
-Same idea (`contract-public/development-idea.txt`), same model (GLM-5.2 on Berget), same
-15-minute wall. The only variable is the seed.
+Two mechanisms in this repository do that, and they do different jobs. Both were measured against
+the same idea (`contract-public/development-idea.txt`), the same model (GLM-5.2 on Berget) and the
+same 15-minute wall.
 
-| Arm | Model-authored lines | Output tokens | Wall | Harness checks | Journeys |
+### The thinking hook decides whether a run finishes at all
+
+| Plain seed | Reasoning | Output tokens | Wall | Harness | Journeys |
 | --- | --- | --- | --- | --- | --- |
-| **Graph seed**, n=5 | 115 / 118 / 137 | 2,992 / 3,610 / 3,836 / 4,153 / 4,575 | 2.8–4.9 min | 15/15 passed | 6–11 |
-| **Plain seed**, n=3 | 1,080 / 1,271 / 1,478 | 14,636 / 15,774 / 15,970 | 15.0 min, all three | 0/9 | 0 |
+| 31 August, n=3 | **on** (8,202 / 12,580 / 16,297 chars) | 14,636 / 15,774 / 15,970 | 15.0 min, **all three killed** | 0/9 | 0 |
+| 3 September, n=3 | **off** | 12,998 / 15,299 / 17,336 | 12.8 / 13.3 / 14.0 min | 9/9 | 5 / 10 / 12 |
 
-Every plain-seed run was killed at the wall with nothing verifiable. Every graph-seed run finished
-in under five minutes with three green checks. The model-authored line counts are the diff against
-the seed: with the graph seed the model writes a product model, a few bindings and one test file;
-with the plain seed it writes the whole application.
+Same checkout, same idea, same model. The only change is that the thinking-compat hook was grafted
+in, taking reasoning to zero. An arm that failed three times out of three now passes three times
+out of three.
 
-### What is wrong with this comparison
+This corrects an earlier reading in this project's own notes, which predicted the thinking fix
+would not rescue the plain arm because it was output-bound by code volume. It was wrong: reasoning
+was the difference between finishing and not.
 
-Four things, stated because a reader will find them.
+### The seed decides how much room the run has left
 
-1. **The plain arm predates the thinking fix** (31 August; the fix landed 1 September), so it was
-   emitting reasoning the graph arm was not. This is measured rather than assumed. Replaying those
-   three sessions gives 8,202, 12,580 and 16,297 characters of reasoning — roughly 2,000–4,100
-   tokens of a 14,636–15,970 token budget, or 13–28%. `reasoning_tokens` reports 0 for these runs
-   and is simply wrong, which is why this repository does not trust that field.
+| Arm | Model-authored lines | Output tokens | Wall | Cost | Harness | Journeys |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Graph seed**, n=5 | 115–137 | 2,992–4,575 | **2.8–4.9 min** | €0.0248–0.0341 | 15/15 | 6–11 |
+| **Plain seed**, n=3 | 1,012–1,205 | 12,998–17,336 | **12.8–14.0 min** | €0.068–0.089 | 9/9 | 5–12 |
 
-   The gap survives the correction. Subtract all of the reasoning and the plain arm still emits
-   about 11k–14k output tokens of application code against the graph arm's 2,992–4,575 at zero
-   reasoning. The thinking fix alone would not have rescued it: those runs are output-bound by
-   code volume, and each one still had 1,080–1,478 lines to write.
-2. **291–389 of the plain arm's lines are CSS**, which the graph seed absorbs with a classless
-   base. That is a real saving, but it is a styling decision rather than a composability result.
-3. **Wall-clock figures are throughput-dependent.** Berget's observed throughput varies roughly
-   3x by time of day. The token counts are throughput-independent; the minutes are not.
-4. **n is small on the seed comparison itself.** Five against three, one idea.
+Both arms pass. Comparing medians, the plain arm spends roughly **4x** the output tokens,
+**2.6x** the euros, and **3.5x** the wall clock of the graph arm.
 
-Point 4 is the one that has since been addressed.
+Margin is the part that matters on judging day, because the wall is fixed and throughput is not.
+The plain arm's slowest run finished at 14.0 minutes, leaving **1.0 minute** of a 15-minute
+budget. The graph arm's slowest finished at 4.9, leaving **10.1**. Put as a tolerance: the plain
+arm survives a **1.07x** slowdown before it is killed; the graph arm survives **3.06x**. Berget's
+observed throughput varies roughly 3x between its slow and fast windows, and every run in both
+tables above was taken in a good window. A plain-seed run that passes at 14.0 minutes in the
+evening does not pass at midday.
+
+So the honest statement of what the seed buys is not "it makes runs succeed". It is: **the seed
+turns a run that barely fits into one that comfortably fits, at 2.6x lower ranked cost.**
+
+### What is still wrong with this comparison
+
+1. **One idea.** Both plain arms and all five graph runs are book-lending. The nine-idea evidence
+   below is graph-seed only; there is no plain-seed arm across idea shapes.
+2. **The skill text differs between arms.** The plain checkout's `SKILL.md:12` asks for "a small
+   repository or service boundary", which steers toward architecture. So this measures "typed seed
+   plus its skill" against "no seed plus its skill", not the ontology in isolation.
+3. **233–292 of the plain arm's lines are CSS**, which the graph seed absorbs with a classless
+   base. Real, but a styling decision rather than a composability result.
+4. **Wall-clock figures are throughput-dependent** and all were taken in a good window. The token
+   and cost figures are not throughput-dependent; the minutes are.
 
 ## Generality: nine ideas, one configuration
 
