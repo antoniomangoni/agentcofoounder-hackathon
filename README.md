@@ -1,8 +1,12 @@
-# AgentCofounder starter
+# AgentCofounder — Starter Repo Track submission
 
-A forkable baseline for the AgentCofounder challenge. It gives every team the same pinned Pi runtime, neutral web application seed, execution command, telemetry collector, and public contract while leaving the actual agent strategy participant-owned.
+Built on the AgentCofounder starter baseline, which supplies the pinned Pi runtime, the neutral
+application seed, the execution command, the telemetry collector and the public contract. What is
+ours is the seed's graph kernel and composers, the skill, and four extension hooks. The sections
+documenting the contract are left as the baseline wrote them so they can be diffed against it.
 
-This repository installs Pi as a local dependency at exactly `@earendil-works/pi-coding-agent@0.84.1`. Do not use the floating shell installer and do not run `pi update` during the challenge.
+Pi is installed as a local dependency at exactly `@earendil-works/pi-coding-agent@0.84.1`. Do not
+use the floating shell installer and do not run `pi update` during the challenge.
 
 ## What this submission does
 
@@ -61,7 +65,7 @@ two hook measurements, and what is not measured.
 
 Official hidden prompts, hidden tests, model credentials, and final scoring code must remain outside participant repositories.
 
-> **Organizer release requirement:** `contract-public/development-idea.txt` is a development placeholder. Replace it with the finalized public prompt before sharing this repository with participants. Never place hidden judging material in this file.
+> **Inherited from the baseline, and worth stating plainly:** `contract-public/development-idea.txt` is the development placeholder, unchanged. Judging uses a hidden idea, so every measurement in this repository that cites "the development idea" is measuring the placeholder. No hidden judging material is in this file.
 
 ## Prerequisites
 
@@ -138,9 +142,13 @@ npm run validate:result -- output/app/result.json
 
 ## Result and telemetry ownership
 
+### Who writes the result
+
 The model writes `report.partial.json`, containing the product summary, assumptions, features, and tests. The runner writes `result.json` after parsing Pi's completed `message_end` events. This prevents the model from inventing headline token totals.
 
 The runner appends the canonical domain-neutral journey guidance from `contract-public/journeys.md` to Pi's built-in system prompt. The protected-paths extension removes only Pi's documentation-reference block, retaining its tool list and usage guidance without steering the model toward package internals. The challenge guidance prevents implied behaviors from being dropped for simplicity while explicitly rejecting unrelated substitute features; the input idea remains authoritative.
+
+### What the runner verifies for itself
 
 The runner independently executes the pinned Vitest binary, requires at least one completed passing test with no skipped or todo tests, runs `npm run build`, starts the application, probes the published `http://localhost:3000` URL only while the spawned server is alive, and terminates the full process group. Product-journey records remain in the specification-defined `tests_run` field; `success` requires at least one such journey and no failed entries. Independent Vitest, build, and startup evidence is recorded in `harness_checks`. The runner also owns `app_url` and a location-aware `start_command`, so harmless formatting differences in the partial report cannot invalidate a run.
 
@@ -150,15 +158,21 @@ A provisional result is written before app verification starts. Verification fai
 
 The raw event stream and Pi session files are retained for audit. Official judging must independently recompute usage and compare it with `result.json`; the participant-controlled report is never the final scoring authority.
 
+### Telemetry fields
+
 `reasoning_tokens` and `cost_total` are included as additional audit fields. No efficiency score is calculated here because the public specification must first define the cache-write weighting and whether ranking uses the custom token formula or Pi's monetary cost.
 
 `call_log` records one entry per model call. Assistant entries carry `stop_reason`, and the top-level `truncated` flag is true when any assistant message ended at the output-token cap (`length`). When the *final* assistant message is truncated, the runner treats the model run as incomplete and skips Vitest, the build, and the startup probe. `harness_checks` still lists all three, because the schema has no way to say "not run", but each `result` is `failed` and the `journey` string gives the reason. Read `truncated` before reading `harness_checks`: a truncated run's failed checks are not evidence about the generated app.
+
+### Two deliberate tolerances
 
 Two deliberate tolerances sit alongside that gate, both affecting what a run reports rather than what the runner audits.
 
 `tests_run` entries are accepted under the near-miss spellings models actually emit: `name` for `journey`, `status` for `result`, and an absent `command` defaulting to `npm test`. Only `passed` and `failed` are accepted as outcomes, so a failed journey is never promoted; an entry whose `command` is present but malformed is still discarded. Three runs produced complete, harness-green applications and scored as if no journey ran because of a field name, and the report is participant-controlled text rather than audited evidence.
 
 A run that exceeds `CHALLENGE_TIMEOUT_MS` but leaves a `report.partial.json` naming journeys still gets Vitest, the build, and the startup probe, and reports `partial` when they pass. The harness's own evidence about the generated app is independent of how Pi exited. Such a run can never report `success`, and it still reports `failed` when any check fails or the report names no journeys. Truncated runs remain excluded, because a report cut off mid-write is not trustworthy.
+
+### Stopping a runaway run, and the shipped hooks
 
 A run is also stopped when its billable tokens — fresh input plus cache reads — cross `CHALLENGE_TOKEN_CEILING` (default 3,000,000), reported as `pi_exit_code` 125 and treated exactly like a timeout. A model that repeats one tool call resends a growing context every time, so spend grows with the square of the call count while nothing is produced: the largest healthy run observed used 888,748 billable tokens, while a single looping run reached 26.6 million and wrote no tests at all. The ceiling bounds that, and a stopped run that still left a usable report is verified and degraded to `partial` on the same terms as a timeout.
 
@@ -168,22 +182,30 @@ The same extension makes `CHALLENGE_THINKING=off` actually reach the model. Pi e
 
 The extension also annotates writes to `src/product-model.json`. The app's loader accepts or rejects that file whole and reports no reason, so a single mistyped `kind` renders "The product definition could not be read" and makes every journey test fail with its elements simply absent — a symptom that points nowhere near the file at fault. Across 103 recorded runs this happened once and cost that run its entire wall-clock budget. A `tool_result` hook now re-checks the file after each write and, when it will not load, appends the failing field and the symptom to the tool result. It never blocks the write, never alters a file, and leaves the result untouched whenever the model is valid or the file cannot be read or parsed.
 
+### What these fields do not tell you
+
 `truncated` and the per-call `stop_reason` are additive fields. `contract-public/result.schema.json` permits them through `additionalProperties` and does not require them, so the frozen contract did not have to change. Two consequences for judging: a stricter validator may drop them, and a run that produced no application at all still validates as a well-formed result. Schema validity is not evidence of work.
 
 `reasoning_tokens` is only as trustworthy as the provider's usage records. A provider that reports `reasoning: 0` while emitting mostly reasoning makes the field meaningless; `stop_reason` is what diagnoses those runs.
 
-## Develop the harness
+## What this submission changed
 
-The starter deliberately makes one autonomous Pi invocation. Possible participant improvements include:
+The baseline makes one autonomous Pi invocation and lists the improvements a team might make.
+This submission took three of them and deliberately left the rest:
 
-- a shorter or more reliable prompt;
-- specialized extensions or tools;
-- reusable but domain-neutral application primitives;
-- test-and-repair orchestration;
-- deliberate prompt caching;
-- a different Pi integration through its SDK or RPC mode.
+| The baseline's suggestion | What was done |
+| --- | --- |
+| Reusable but domain-neutral application primitives | **Done, and this is the main change.** The graph store and composers in `app-template/src/`, driven by a typed `product-model.json`. |
+| Specialized extensions or tools | **Done.** Four hooks in `solution/extensions/protected-paths.ts`: thinking compat, repeat breaker, token ceiling, product-model diagnostic. |
+| A shorter or more reliable prompt | **Partly.** `solution/skills/mvp-builder/SKILL.md` is kept deliberately short, because the seed carries what a longer prompt would otherwise have to say. |
+| Test-and-repair orchestration | **Not done.** The single Pi call repairs its own tests. |
+| Deliberate prompt caching | **Not done.** Runs benefit from the provider's caching, which is measured — and was observed failing outright on one provider, costing 14x. |
+| A different Pi integration (SDK or RPC) | **Not done.** One CLI invocation. |
 
-Do not add a challenge idea's domain vocabulary or expected records to reusable code. The official judging idea will be different.
+Still one Pi call. No challenge idea's domain vocabulary or expected records appear in reusable
+code; the judging idea will be different.
+
+[docs/approach.md](docs/approach.md) argues for the first two rows and reports what they measured.
 
 ## Security
 
